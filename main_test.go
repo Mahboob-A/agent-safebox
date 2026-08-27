@@ -536,8 +536,8 @@ func TestCLIShadowLifecycle(t *testing.T) {
 		t.Errorf("expected deleted to_delete.txt in diff output, got: %s", diffStr)
 	}
 
-	// 4. Run safebox apply --shadow=<upperDir>
-	applyOut, applyErr := runCLIInDir(lowerDir, "apply", "--shadow="+upperDir)
+	// 4. Run safebox apply --shadow=<upperDir> --yes
+	applyOut, applyErr := runCLIInDir(lowerDir, "apply", "--shadow="+upperDir, "--yes")
 	if applyErr != nil {
 		t.Fatalf("safebox apply --shadow failed: %v, output: %s", applyErr, string(applyOut))
 	}
@@ -564,6 +564,89 @@ func TestCLIShadowLifecycle(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(lowerDir, "to_delete.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("expected to_delete.txt to be removed from lowerDir, err: %v", err)
+	}
+}
+
+func TestCLIApplyRequiresShadow(t *testing.T) {
+	out, err := runCLI("apply")
+	if err == nil {
+		t.Fatalf("expected error when --shadow is missing, got success: %s", string(out))
+	}
+	if !strings.Contains(string(out), "--shadow=<dir> argument is required") {
+		t.Errorf("expected '--shadow=<dir> argument is required' in output, got: %s", string(out))
+	}
+}
+
+func TestCLIApplyNonExistentDir(t *testing.T) {
+	out, err := runCLI("apply", "--shadow=/non/existent/shadow/dir", "--yes")
+	if err == nil {
+		t.Fatalf("expected error for non-existent shadow dir, got success: %s", string(out))
+	}
+	if !strings.Contains(string(out), "does not exist") {
+		t.Errorf("expected 'does not exist' in output, got: %s", string(out))
+	}
+}
+
+func TestCLIDiffNonExistentShadowDir(t *testing.T) {
+	out, err := runCLI("diff", "--shadow=/non/existent/shadow/dir")
+	if err == nil {
+		t.Fatalf("expected error for non-existent shadow dir in diff, got success: %s", string(out))
+	}
+	if !strings.Contains(string(out), "does not exist") {
+		t.Errorf("expected 'does not exist' in output, got: %s", string(out))
+	}
+}
+
+func TestCLIApplyConfirmationYes(t *testing.T) {
+	tmpDir := t.TempDir()
+	lowerDir := filepath.Join(tmpDir, "lower")
+	upperDir := filepath.Join(tmpDir, "upper")
+
+	if err := os.MkdirAll(lowerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(upperDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(upperDir, "new.txt"), []byte("data\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runCLIInDirWithStdin(lowerDir, strings.NewReader("y\n"), "apply", "--shadow="+upperDir)
+	if err != nil {
+		t.Fatalf("expected interactive apply to succeed, got: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Shadow changes applied to working directory.") {
+		t.Errorf("expected apply success message, got: %s", string(out))
+	}
+}
+
+func TestCLIApplyConfirmationNo(t *testing.T) {
+	tmpDir := t.TempDir()
+	lowerDir := filepath.Join(tmpDir, "lower")
+	upperDir := filepath.Join(tmpDir, "upper")
+
+	if err := os.MkdirAll(lowerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(upperDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(upperDir, "new.txt"), []byte("data\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runCLIInDirWithStdin(lowerDir, strings.NewReader("n\n"), "apply", "--shadow="+upperDir)
+	if err != nil {
+		t.Fatalf("expected interactive apply cancel to exit 0, got: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Apply cancelled.") {
+		t.Errorf("expected 'Apply cancelled.' in output, got: %s", string(out))
+	}
+	if _, err := os.Stat(filepath.Join(lowerDir, "new.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Error("expected new.txt NOT to be applied to lowerDir")
 	}
 }
 

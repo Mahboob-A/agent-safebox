@@ -17,13 +17,31 @@ func printSubcommandError(subcommand string, err error) {
 	fmt.Fprintf(os.Stderr, "%s safebox %s: %v\n", ui.StyleDenied.Render("ERROR"), subcommand, err)
 }
 
+func parseShadowFlag(args []string) string {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--shadow=") {
+			return strings.TrimPrefix(arg, "--shadow=")
+		}
+	}
+	return ""
+}
+
+func hasYesFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "--yes" || arg == "-y" || arg == "--yes=true" {
+			return true
+		}
+	}
+	return false
+}
+
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage: safebox <command> [arguments]\n\n")
 	fmt.Fprintf(os.Stderr, "Commands:\n")
 	fmt.Fprintf(os.Stderr, "  run [--] <cmd...>             Run a command inside the sandbox\n")
 	fmt.Fprintf(os.Stderr, "  diff [--shadow=<dir>]         Show modified, added, and deleted files\n")
 	fmt.Fprintf(os.Stderr, "  revert [--yes|-y]             Discard all working tree changes\n")
-	fmt.Fprintf(os.Stderr, "  apply --shadow=<dir>          Apply shadow changes to working directory\n")
+	fmt.Fprintf(os.Stderr, "  apply --shadow=<dir> [--yes]  Apply shadow changes to working directory\n")
 	fmt.Fprintf(os.Stderr, "  help                          Show help documentation\n")
 }
 
@@ -72,13 +90,7 @@ func main() {
 		}
 
 	case "diff":
-		var shadowUpper string
-		for _, arg := range args {
-			if strings.HasPrefix(arg, "--shadow=") {
-				shadowUpper = strings.TrimPrefix(arg, "--shadow=")
-			}
-		}
-
+		shadowUpper := parseShadowFlag(args)
 		cwd, err := os.Getwd()
 		if err != nil {
 			printSubcommandError("diff", fmt.Errorf("failed to get working directory: %w", err))
@@ -86,6 +98,10 @@ func main() {
 		}
 
 		if shadowUpper != "" {
+			if _, err := os.Stat(shadowUpper); err != nil {
+				printSubcommandError("diff", fmt.Errorf("shadow directory %q does not exist: %w", shadowUpper, err))
+				os.Exit(1)
+			}
 			if err := revert.RunShadowDiff(cwd, shadowUpper, os.Stdout); err != nil {
 				printSubcommandError("diff", err)
 				os.Exit(1)
@@ -99,13 +115,7 @@ func main() {
 		}
 
 	case "revert":
-		force := false
-		for _, arg := range os.Args[2:] {
-			if arg == "--yes" || arg == "-y" || arg == "--yes=true" {
-				force = true
-			}
-		}
-
+		force := hasYesFlag(args)
 		cwd, err := os.Getwd()
 		if err != nil {
 			printSubcommandError("revert", fmt.Errorf("failed to get working directory: %w", err))
@@ -121,15 +131,25 @@ func main() {
 		}
 
 	case "apply":
-		var shadowUpper string
-		for _, arg := range args {
-			if strings.HasPrefix(arg, "--shadow=") {
-				shadowUpper = strings.TrimPrefix(arg, "--shadow=")
-			}
-		}
+		shadowUpper := parseShadowFlag(args)
 		if shadowUpper == "" {
 			printSubcommandError("apply", errors.New("--shadow=<dir> argument is required"))
 			os.Exit(1)
+		}
+
+		if _, err := os.Stat(shadowUpper); err != nil {
+			printSubcommandError("apply", fmt.Errorf("shadow directory %q does not exist: %w", shadowUpper, err))
+			os.Exit(1)
+		}
+
+		force := hasYesFlag(args)
+		if !force {
+			fmt.Fprintf(os.Stdout, "%s Apply shadow changes to working directory? [y/N]: ", ui.StyleMeta.Render("PROMPT"))
+			var response string
+			if _, err := fmt.Fscanln(os.Stdin, &response); err != nil || (response != "y" && response != "yes" && response != "Y" && response != "YES") {
+				fmt.Fprintf(os.Stdout, "%s\n", ui.StyleMeta.Render("Apply cancelled."))
+				os.Exit(0)
+			}
 		}
 
 		cwd, err := os.Getwd()

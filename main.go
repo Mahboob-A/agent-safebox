@@ -81,8 +81,30 @@ func main() {
 		}
 
 	case "revert":
-		// Phase 3 stub
-		fmt.Fprintf(os.Stdout, "%s revert subcommand stub\n", ui.StyleMeta.Render("INFO"))
+		force := false
+		for _, arg := range os.Args[2:] {
+			if arg == "--yes" || arg == "-y" || arg == "--yes=true" {
+				force = true
+			}
+		}
+
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s safebox: failed to get working directory: %v\n", ui.StyleDenied.Render("ERROR"), err)
+			os.Exit(1)
+		}
+
+		if err := revert.Revert(cwd, force, os.Stdin, os.Stdout); err != nil {
+			if errors.Is(err, revert.ErrNotGitRepo) {
+				fmt.Fprintf(os.Stderr, "%s safebox revert: not a git repository (or any of the parent directories)\n", ui.StyleDenied.Render("ERROR"))
+				os.Exit(1)
+			} else if errors.Is(err, revert.ErrRevertCancelled) {
+				os.Exit(0)
+			} else {
+				fmt.Fprintf(os.Stderr, "%s safebox revert: %v\n", ui.StyleDenied.Render("ERROR"), err)
+				os.Exit(1)
+			}
+		}
 
 	case "help", "-h", "--help":
 		printUsage()

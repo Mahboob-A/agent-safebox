@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,11 +129,16 @@ func TestRunLatencyBudget(t *testing.T) {
 	}
 }
 
-func runCLIInDir(dir string, args ...string) ([]byte, error) {
+func runCLIInDirWithStdin(dir string, stdin io.Reader, args ...string) ([]byte, error) {
 	cmd := exec.Command(testBinaryPath, args...)
 	cmd.Dir = dir
+	cmd.Stdin = stdin
 	cmd.Env = append(os.Environ(), "LANG=C")
 	return cmd.CombinedOutput()
+}
+
+func runCLIInDir(dir string, args ...string) ([]byte, error) {
+	return runCLIInDirWithStdin(dir, nil, args...)
 }
 
 func setupCLITestGitRepo(t *testing.T) string {
@@ -280,5 +286,106 @@ func TestCLIDiffFromSubdirectory(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "+ [ADDED]") || !strings.Contains(string(out), "nested_file.txt") {
 		t.Errorf("expected '+ [ADDED]' with nested_file.txt in output, got: %s", string(out))
+	}
+}
+
+func TestCLIRevertCleanRepo(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+	out, err := runCLIInDir(dir, "revert", "--yes")
+	if err != nil {
+		t.Fatalf("revert --yes failed on clean repo: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Working tree restored.") {
+		t.Errorf("expected 'Working tree restored.' in output, got: %s", string(out))
+	}
+}
+
+func TestCLIRevertWithChangesForced(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+
+	// Dirty the repo
+	newFile := filepath.Join(dir, "created.txt")
+	if err := os.WriteFile(newFile, []byte("untracked\n"), 0600); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+	initialFile := filepath.Join(dir, "initial.txt")
+	if err := os.WriteFile(initialFile, []byte("modified\n"), 0600); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	// Test -y shorthand
+	out, err := runCLIInDir(dir, "revert", "-y")
+	if err != nil {
+		t.Fatalf("revert -y failed: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Working tree restored.") {
+		t.Errorf("expected 'Working tree restored.' in output, got: %s", string(out))
+	}
+
+	// Verify working tree is clean via diff
+	diffOut, err := runCLIInDir(dir, "diff")
+	if err != nil {
+		t.Fatalf("diff after revert failed: %v, output: %s", err, string(diffOut))
+	}
+	if !strings.Contains(string(diffOut), "Working tree is clean") {
+		t.Errorf("expected clean working tree after revert, got: %s", string(diffOut))
+	}
+}
+
+func TestCLIRevertConfirmationYes(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+
+	newFile := filepath.Join(dir, "created.txt")
+	if err := os.WriteFile(newFile, []byte("untracked\n"), 0600); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	out, err := runCLIInDirWithStdin(dir, strings.NewReader("y\n"), "revert")
+	if err != nil {
+		t.Fatalf("revert with 'y' failed: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Are you sure you want to discard") {
+		t.Errorf("expected confirmation prompt in output, got: %s", string(out))
+	}
+	if !strings.Contains(string(out), "Working tree restored.") {
+		t.Errorf("expected 'Working tree restored.' in output, got: %s", string(out))
+	}
+
+	// Verify file is removed
+	if _, err := os.Stat(newFile); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected untracked file to be deleted, err: %v", err)
+	}
+}
+
+func TestCLIRevertConfirmationNo(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+
+	newFile := filepath.Join(dir, "created.txt")
+	if err := os.WriteFile(newFile, []byte("untracked\n"), 0600); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	out, err := runCLIInDirWithStdin(dir, strings.NewReader("n\n"), "revert")
+	if err != nil {
+		t.Fatalf("revert with 'n' should exit cleanly with code 0, got err: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Revert cancelled. Pass --yes to skip confirmation.") {
+		t.Errorf("expected cancellation notice in output, got: %s", string(out))
+	}
+
+	// Verify file is preserved
+	if _, err := os.Stat(newFile); err != nil {
+		t.Errorf("expected untracked file to still exist after cancellation, err: %v", err)
+	}
+}
+
+func TestCLIRevertNonGitDirectory(t *testing.T) {
+	nonGitDir := t.TempDir()
+	out, err := runCLIInDir(nonGitDir, "revert", "--yes")
+	if err == nil {
+		t.Fatalf("expected revert to fail in non-git dir, got success: %s", string(out))
+	}
+	if !strings.Contains(string(out), "not a git repository") {
+		t.Errorf("expected 'not a git repository' in error output, got: %s", string(out))
 	}
 }

@@ -214,3 +214,71 @@ func TestCLIDiffNonGitDirectory(t *testing.T) {
 		t.Errorf("expected 'not a git repository' in error output, got: %s", string(out))
 	}
 }
+
+func TestCLISandboxRunAndDiff(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+
+	// Create another file to be committed and deleted
+	toDeleteFile := filepath.Join(dir, "to_delete.txt")
+	if err := os.WriteFile(toDeleteFile, []byte("will be deleted\n"), 0600); err != nil {
+		t.Fatalf("failed to write to_delete.txt: %v", err)
+	}
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test User",
+			"GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Test User",
+			"GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v, output: %s", args, err, string(out))
+		}
+	}
+	runGit("add", "to_delete.txt")
+	runGit("commit", "-m", "add to_delete")
+
+	// Run sandboxed command that creates, modifies, and deletes files inside the working tree
+	runCmdScript := "touch created_in_sandbox.txt && echo 'modified' >> initial.txt && rm to_delete.txt"
+	runOut, runErr := runCLIInDir(dir, "run", "--", "sh", "-c", runCmdScript)
+	if runErr != nil {
+		t.Fatalf("safebox run failed: %v, output: %s", runErr, string(runOut))
+	}
+
+	// Verify post-run change visibility via safebox diff
+	diffOut, diffErr := runCLIInDir(dir, "diff")
+	if diffErr != nil {
+		t.Fatalf("safebox diff failed: %v, output: %s", diffErr, string(diffOut))
+	}
+	diffStr := string(diffOut)
+	if !strings.Contains(diffStr, "+ [ADDED]") || !strings.Contains(diffStr, "created_in_sandbox.txt") {
+		t.Errorf("expected added created_in_sandbox.txt, got: %s", diffStr)
+	}
+	if !strings.Contains(diffStr, "~ [MODIFIED]") || !strings.Contains(diffStr, "initial.txt") {
+		t.Errorf("expected modified initial.txt, got: %s", diffStr)
+	}
+	if !strings.Contains(diffStr, "- [DELETED]") || !strings.Contains(diffStr, "to_delete.txt") {
+		t.Errorf("expected deleted to_delete.txt, got: %s", diffStr)
+	}
+}
+
+func TestCLIDiffFromSubdirectory(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+	subDir := filepath.Join(dir, "sub", "nested")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("failed to create subdir: %v", err)
+	}
+
+	nestedFile := filepath.Join(subDir, "nested_file.txt")
+	if err := os.WriteFile(nestedFile, []byte("nested content\n"), 0600); err != nil {
+		t.Fatalf("failed to write nested file: %v", err)
+	}
+
+	out, err := runCLIInDir(subDir, "diff")
+	if err != nil {
+		t.Fatalf("diff from subdir failed: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "+ [ADDED]") || !strings.Contains(string(out), "nested_file.txt") {
+		t.Errorf("expected '+ [ADDED]' with nested_file.txt in output, got: %s", string(out))
+	}
+}

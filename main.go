@@ -12,6 +12,10 @@ import (
 	"safebox/internal/ui"
 )
 
+func printSubcommandError(subcommand string, err error) {
+	fmt.Fprintf(os.Stderr, "%s safebox %s: %v\n", ui.StyleDenied.Render("ERROR"), subcommand, err)
+}
+
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage: safebox <command> [arguments]\n\n")
 	fmt.Fprintf(os.Stderr, "Commands:\n")
@@ -68,15 +72,11 @@ func main() {
 	case "diff":
 		cwd, err := os.Getwd()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s safebox: failed to get working directory: %v\n", ui.StyleDenied.Render("ERROR"), err)
+			printSubcommandError("diff", fmt.Errorf("failed to get working directory: %w", err))
 			os.Exit(1)
 		}
 		if err := revert.RunDiff(cwd, os.Stdout); err != nil {
-			if errors.Is(err, revert.ErrNotGitRepo) {
-				fmt.Fprintf(os.Stderr, "%s safebox diff: not a git repository (or any of the parent directories)\n", ui.StyleDenied.Render("ERROR"))
-			} else {
-				fmt.Fprintf(os.Stderr, "%s safebox diff: %v\n", ui.StyleDenied.Render("ERROR"), err)
-			}
+			printSubcommandError("diff", err)
 			os.Exit(1)
 		}
 
@@ -90,20 +90,16 @@ func main() {
 
 		cwd, err := os.Getwd()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s safebox: failed to get working directory: %v\n", ui.StyleDenied.Render("ERROR"), err)
+			printSubcommandError("revert", fmt.Errorf("failed to get working directory: %w", err))
 			os.Exit(1)
 		}
 
 		if err := revert.Revert(cwd, force, os.Stdin, os.Stdout); err != nil {
-			if errors.Is(err, revert.ErrNotGitRepo) {
-				fmt.Fprintf(os.Stderr, "%s safebox revert: not a git repository (or any of the parent directories)\n", ui.StyleDenied.Render("ERROR"))
-				os.Exit(1)
-			} else if errors.Is(err, revert.ErrRevertCancelled) {
+			if errors.Is(err, revert.ErrRevertCancelled) {
 				os.Exit(0)
-			} else {
-				fmt.Fprintf(os.Stderr, "%s safebox revert: %v\n", ui.StyleDenied.Render("ERROR"), err)
-				os.Exit(1)
 			}
+			printSubcommandError("revert", err)
+			os.Exit(1)
 		}
 
 	case "help", "-h", "--help":

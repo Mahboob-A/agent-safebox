@@ -141,33 +141,34 @@ func runCLIInDir(dir string, args ...string) ([]byte, error) {
 	return runCLIInDirWithStdin(dir, nil, args...)
 }
 
+func runGitInDir(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test User",
+		"GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=Test User",
+		"GIT_COMMITTER_EMAIL=test@example.com",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v, output: %s", args, err, string(out))
+	}
+}
+
 func setupCLITestGitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	runGit := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Test User",
-			"GIT_AUTHOR_EMAIL=test@example.com",
-			"GIT_COMMITTER_NAME=Test User",
-			"GIT_COMMITTER_EMAIL=test@example.com",
-		)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v failed: %v, output: %s", args, err, string(out))
-		}
-	}
-
-	runGit("init")
-	runGit("config", "user.name", "Test User")
-	runGit("config", "user.email", "test@example.com")
+	runGitInDir(t, dir, "init")
+	runGitInDir(t, dir, "config", "user.name", "Test User")
+	runGitInDir(t, dir, "config", "user.email", "test@example.com")
 
 	initialFile := filepath.Join(dir, "initial.txt")
 	if err := os.WriteFile(initialFile, []byte("initial content\n"), 0600); err != nil {
 		t.Fatalf("failed to write initial file: %v", err)
 	}
-	runGit("add", "initial.txt")
-	runGit("commit", "-m", "initial commit")
+	runGitInDir(t, dir, "add", "initial.txt")
+	runGitInDir(t, dir, "commit", "-m", "initial commit")
 
 	return dir
 }
@@ -229,20 +230,8 @@ func TestCLISandboxRunAndDiff(t *testing.T) {
 	if err := os.WriteFile(toDeleteFile, []byte("will be deleted\n"), 0600); err != nil {
 		t.Fatalf("failed to write to_delete.txt: %v", err)
 	}
-	runGit := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Test User",
-			"GIT_AUTHOR_EMAIL=test@example.com",
-			"GIT_COMMITTER_NAME=Test User",
-			"GIT_COMMITTER_EMAIL=test@example.com",
-		)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v failed: %v, output: %s", args, err, string(out))
-		}
-	}
-	runGit("add", "to_delete.txt")
-	runGit("commit", "-m", "add to_delete")
+	runGitInDir(t, dir, "add", "to_delete.txt")
+	runGitInDir(t, dir, "commit", "-m", "add to_delete")
 
 	// Run sandboxed command that creates, modifies, and deletes files inside the working tree
 	runCmdScript := "touch created_in_sandbox.txt && echo 'modified' >> initial.txt && rm to_delete.txt"
@@ -398,20 +387,8 @@ func TestCLILifecycleRunDiffRevert(t *testing.T) {
 	if err := os.WriteFile(toDeleteFile, []byte("tracked to delete\n"), 0600); err != nil {
 		t.Fatalf("failed to write to_delete.txt: %v", err)
 	}
-	runGit := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Test User",
-			"GIT_AUTHOR_EMAIL=test@example.com",
-			"GIT_COMMITTER_NAME=Test User",
-			"GIT_COMMITTER_EMAIL=test@example.com",
-		)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v failed: %v, output: %s", args, err, string(out))
-		}
-	}
-	runGit("add", "to_delete.txt")
-	runGit("commit", "-m", "add to_delete.txt")
+	runGitInDir(t, dir, "add", "to_delete.txt")
+	runGitInDir(t, dir, "commit", "-m", "add to_delete.txt")
 
 	// Phase 1: Run sandboxed command that creates, modifies, and deletes files
 	runCmd := "touch created_in_sandbox.txt && echo 'dirty mutation' >> initial.txt && rm to_delete.txt"

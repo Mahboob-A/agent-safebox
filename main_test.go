@@ -389,3 +389,111 @@ func TestCLIRevertNonGitDirectory(t *testing.T) {
 		t.Errorf("expected 'not a git repository' in error output, got: %s", string(out))
 	}
 }
+
+func TestCLILifecycleRunDiffRevert(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+
+	// Add another tracked file to test deletion and restoration
+	toDeleteFile := filepath.Join(dir, "to_delete.txt")
+	if err := os.WriteFile(toDeleteFile, []byte("tracked to delete\n"), 0600); err != nil {
+		t.Fatalf("failed to write to_delete.txt: %v", err)
+	}
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test User",
+			"GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Test User",
+			"GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v, output: %s", args, err, string(out))
+		}
+	}
+	runGit("add", "to_delete.txt")
+	runGit("commit", "-m", "add to_delete.txt")
+
+	// Phase 1: Run sandboxed command that creates, modifies, and deletes files
+	runCmd := "touch created_in_sandbox.txt && echo 'dirty mutation' >> initial.txt && rm to_delete.txt"
+	runOut, runErr := runCLIInDir(dir, "run", "--", "sh", "-c", runCmd)
+	if runErr != nil {
+		t.Fatalf("safebox run failed: %v, output: %s", runErr, string(runOut))
+	}
+
+	// Phase 2: Verify change visibility via safebox diff
+	diffOut, diffErr := runCLIInDir(dir, "diff")
+	if diffErr != nil {
+		t.Fatalf("safebox diff failed: %v, output: %s", diffErr, string(diffOut))
+	}
+	diffStr := string(diffOut)
+	if !strings.Contains(diffStr, "+ [ADDED]") || !strings.Contains(diffStr, "created_in_sandbox.txt") {
+		t.Errorf("expected added created_in_sandbox.txt, got: %s", diffStr)
+	}
+	if !strings.Contains(diffStr, "~ [MODIFIED]") || !strings.Contains(diffStr, "initial.txt") {
+		t.Errorf("expected modified initial.txt, got: %s", diffStr)
+	}
+	if !strings.Contains(diffStr, "- [DELETED]") || !strings.Contains(diffStr, "to_delete.txt") {
+		t.Errorf("expected deleted to_delete.txt, got: %s", diffStr)
+	}
+
+	// Phase 3: Execute one-command revert with --yes
+	revertOut, revertErr := runCLIInDir(dir, "revert", "--yes")
+	if revertErr != nil {
+		t.Fatalf("safebox revert --yes failed: %v, output: %s", revertErr, string(revertOut))
+	}
+	if !strings.Contains(string(revertOut), "Working tree restored.") {
+		t.Errorf("expected 'Working tree restored.' in revert output, got: %s", string(revertOut))
+	}
+
+	// Phase 3 verification: safebox diff reports clean working tree
+	postDiffOut, postDiffErr := runCLIInDir(dir, "diff")
+	if postDiffErr != nil {
+		t.Fatalf("safebox diff after revert failed: %v, output: %s", postDiffErr, string(postDiffOut))
+	}
+	if !strings.Contains(string(postDiffOut), "Working tree is clean. No changes detected.") {
+		t.Errorf("expected clean working tree message after revert, got: %s", string(postDiffOut))
+	}
+
+	// Direct filesystem verification
+	createdFile := filepath.Join(dir, "created_in_sandbox.txt")
+	if _, err := os.Stat(createdFile); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected created_in_sandbox.txt to be removed by revert, err: %v", err)
+	}
+
+	initialContent, err := os.ReadFile(filepath.Join(dir, "initial.txt"))
+	if err != nil {
+		t.Fatalf("failed to read initial.txt: %v", err)
+	}
+	if string(initialContent) != "initial content\n" {
+		t.Errorf("expected initial.txt restored to 'initial content\\n', got: %s", string(initialContent))
+	}
+
+	deleteContent, err := os.ReadFile(toDeleteFile)
+	if err != nil {
+		t.Fatalf("failed to read to_delete.txt: %v", err)
+	}
+	if string(deleteContent) != "tracked to delete\n" {
+		t.Errorf("expected to_delete.txt restored to 'tracked to delete\\n', got: %s", string(deleteContent))
+	}
+}
+
+func TestCLIRevertYesEqualsTrue(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+
+	dirtyFile := filepath.Join(dir, "dirty.txt")
+	if err := os.WriteFile(dirtyFile, []byte("dirty\n"), 0600); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	out, err := runCLIInDir(dir, "revert", "--yes=true")
+	if err != nil {
+		t.Fatalf("revert --yes=true failed: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Working tree restored.") {
+		t.Errorf("expected 'Working tree restored.' in output, got: %s", string(out))
+	}
+
+	if _, err := os.Stat(dirtyFile); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected dirty.txt to be deleted, err: %v", err)
+	}
+}

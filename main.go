@@ -17,7 +17,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "Commands:\n")
 	fmt.Fprintf(os.Stderr, "  run [--] <cmd...>   Run a command inside the sandbox\n")
 	fmt.Fprintf(os.Stderr, "  diff                Show modified, added, and deleted files\n")
-	fmt.Fprintf(os.Stderr, "  revert [--yes]      Discard all working tree changes\n")
+	fmt.Fprintf(os.Stderr, "  revert [--yes|-y]   Discard all working tree changes\n")
 	fmt.Fprintf(os.Stderr, "  help                Show help documentation\n")
 }
 

@@ -55,11 +55,15 @@ func TestRunDiff(t *testing.T) {
 		t.Errorf("expected clean working tree message, got: %s", buf.String())
 	}
 
-	// Test repo with a new file
+	// Test repo with a new file and a deleted file
 	buf.Reset()
 	newFile := filepath.Join(gitDir, "demo.txt")
 	if err := os.WriteFile(newFile, []byte("demo\n"), 0600); err != nil {
 		t.Fatalf("failed to write demo.txt: %v", err)
+	}
+	initialFile := filepath.Join(gitDir, "initial.txt")
+	if err := os.Remove(initialFile); err != nil {
+		t.Fatalf("failed to remove initial.txt: %v", err)
 	}
 
 	if err := RunDiff(gitDir, &buf); err != nil {
@@ -67,6 +71,9 @@ func TestRunDiff(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "+ [ADDED]") || !strings.Contains(buf.String(), "demo.txt") {
 		t.Errorf("expected '+ [ADDED] demo.txt' in output, got: %s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "- [DELETED]") || !strings.Contains(buf.String(), "initial.txt") {
+		t.Errorf("expected '- [DELETED] initial.txt' in output, got: %s", buf.String())
 	}
 
 	// Test non-git repo

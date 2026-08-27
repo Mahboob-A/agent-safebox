@@ -127,3 +127,90 @@ func TestRunLatencyBudget(t *testing.T) {
 		t.Errorf("startup latency %v exceeds 200ms coarse budget (NFR3 target: 50ms)", elapsed)
 	}
 }
+
+func runCLIInDir(dir string, args ...string) ([]byte, error) {
+	cmd := exec.Command(testBinaryPath, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "LANG=C")
+	return cmd.CombinedOutput()
+}
+
+func setupCLITestGitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test User",
+			"GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Test User",
+			"GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v, output: %s", args, err, string(out))
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.name", "Test User")
+	runGit("config", "user.email", "test@example.com")
+
+	initialFile := filepath.Join(dir, "initial.txt")
+	if err := os.WriteFile(initialFile, []byte("initial content\n"), 0600); err != nil {
+		t.Fatalf("failed to write initial file: %v", err)
+	}
+	runGit("add", "initial.txt")
+	runGit("commit", "-m", "initial commit")
+
+	return dir
+}
+
+func TestCLIDiffCleanRepo(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+	out, err := runCLIInDir(dir, "diff")
+	if err != nil {
+		t.Fatalf("diff failed on clean repo: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Working tree is clean. No changes detected.") {
+		t.Errorf("expected clean working tree message, got: %s", string(out))
+	}
+}
+
+func TestCLIDiffWithChanges(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+
+	// Create new untracked file
+	newFile := filepath.Join(dir, "created.txt")
+	if err := os.WriteFile(newFile, []byte("new file\n"), 0600); err != nil {
+		t.Fatalf("failed to write new file: %v", err)
+	}
+
+	// Modify committed file
+	initialFile := filepath.Join(dir, "initial.txt")
+	if err := os.WriteFile(initialFile, []byte("modified content\n"), 0600); err != nil {
+		t.Fatalf("failed to write modified file: %v", err)
+	}
+
+	out, err := runCLIInDir(dir, "diff")
+	if err != nil {
+		t.Fatalf("diff failed on modified repo: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "+ [ADDED]") || !strings.Contains(string(out), "created.txt") {
+		t.Errorf("expected '+ [ADDED] created.txt' in output, got: %s", string(out))
+	}
+	if !strings.Contains(string(out), "~ [MODIFIED]") || !strings.Contains(string(out), "initial.txt") {
+		t.Errorf("expected '~ [MODIFIED] initial.txt' in output, got: %s", string(out))
+	}
+}
+
+func TestCLIDiffNonGitDirectory(t *testing.T) {
+	nonGitDir := t.TempDir()
+	out, err := runCLIInDir(nonGitDir, "diff")
+	if err == nil {
+		t.Fatalf("expected diff to fail in non-git dir, got success: %s", string(out))
+	}
+	if !strings.Contains(string(out), "not a git repository") {
+		t.Errorf("expected 'not a git repository' in error output, got: %s", string(out))
+	}
+}

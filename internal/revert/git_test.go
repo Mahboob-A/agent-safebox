@@ -104,8 +104,8 @@ func TestGetStatusChanges(t *testing.T) {
 	if err := os.WriteFile(toBeDeletedFile, []byte("to be deleted\n"), 0600); err != nil {
 		t.Fatalf("failed to write delete_me file: %v", err)
 	}
-	runGit(t, dirOrPath(gitDir), "add", "delete_me.txt")
-	runGit(t, dirOrPath(gitDir), "commit", "-m", "add delete_me")
+	runGit(t, gitDir, "add", "delete_me.txt")
+	runGit(t, gitDir, "commit", "-m", "add delete_me")
 	if err := os.Remove(toBeDeletedFile); err != nil {
 		t.Fatalf("failed to remove delete_me file: %v", err)
 	}
@@ -133,10 +133,6 @@ func TestGetStatusChanges(t *testing.T) {
 	if changeMap["delete_me.txt"].Type != ChangeDeleted || !strings.Contains(changeMap["delete_me.txt"].StatusCode, "D") {
 		t.Errorf("unexpected deleted change: %+v", changeMap["delete_me.txt"])
 	}
-}
-
-func dirOrPath(dir string) string {
-	return dir
 }
 
 func TestGetStatusStagedAdded(t *testing.T) {
@@ -189,9 +185,7 @@ func TestGetStatusUTF8(t *testing.T) {
 	if len(changes) != 1 {
 		t.Fatalf("expected 1 change, got %d: %+v", len(changes), changes)
 	}
-	// Git status porcelain quotes non-ASCII by default or outputs raw depending on core.quotepath.
-	// Either way, it must detect the untracked file change without errors.
-	if changes[0].Type != ChangeUntracked {
-		t.Errorf("expected ChangeUntracked, got %+v", changes[0])
+	if changes[0].Type != ChangeUntracked || changes[0].Path != "файл.txt" {
+		t.Errorf("expected ChangeUntracked with unquoted path 'файл.txt', got %+v", changes[0])
 	}
 }

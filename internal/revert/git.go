@@ -49,7 +49,7 @@ func GetStatus(dir string) ([]FileChange, error) {
 		return nil, ErrNotGitRepo
 	}
 
-	cmd := osexec.Command("git", "-C", dir, "status", "--porcelain=v1", "-uall")
+	cmd := osexec.Command("git", "-c", "core.quotepath=off", "-C", dir, "status", "--porcelain=v1", "-uall")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("safebox: git status failed: %w", err)

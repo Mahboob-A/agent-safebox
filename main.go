@@ -8,6 +8,7 @@ import (
 
 	"safebox/internal/exec"
 	"safebox/internal/isolation"
+	"safebox/internal/revert"
 	"safebox/internal/ui"
 )
 
@@ -65,8 +66,19 @@ func main() {
 		}
 
 	case "diff":
-		// Phase 3 stub
-		fmt.Fprintf(os.Stdout, "%s diff subcommand stub\n", ui.StyleMeta.Render("INFO"))
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s safebox: failed to get working directory: %v\n", ui.StyleDenied.Render("ERROR"), err)
+			os.Exit(1)
+		}
+		if err := revert.RunDiff(cwd, os.Stdout); err != nil {
+			if errors.Is(err, revert.ErrNotGitRepo) {
+				fmt.Fprintf(os.Stderr, "%s safebox diff: not a git repository (or any of the parent directories)\n", ui.StyleDenied.Render("ERROR"))
+			} else {
+				fmt.Fprintf(os.Stderr, "%s safebox diff: %v\n", ui.StyleDenied.Render("ERROR"), err)
+			}
+			os.Exit(1)
+		}
 
 	case "revert":
 		// Phase 3 stub

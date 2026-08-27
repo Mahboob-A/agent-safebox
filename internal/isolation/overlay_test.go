@@ -109,6 +109,11 @@ func TestMountOverlaySubprocess(t *testing.T) {
 			os.Exit(3)
 		}
 
+		if err := UnmountOverlay(targetDir); err != nil {
+			os.Stderr.WriteString("unmount error: " + err.Error() + "\n")
+			os.Exit(4)
+		}
+
 		os.Exit(0)
 	}
 
@@ -180,5 +185,11 @@ func TestMountOverlaySubprocess(t *testing.T) {
 	}
 	if string(modContent) != "modified in overlay\n" {
 		t.Errorf("expected upperDir file to be %q, got %q", "modified in overlay\n", string(modContent))
+	}
+}
+
+func TestUnmountOverlayValidation(t *testing.T) {
+	if err := UnmountOverlay(""); err == nil {
+		t.Error("expected error for empty target directory in UnmountOverlay")
 	}
 }

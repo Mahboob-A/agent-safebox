@@ -56,3 +56,14 @@ func MountOverlay(cfg OverlayConfig) error {
 	}
 	return nil
 }
+
+// UnmountOverlay unmounts an active OverlayFS filesystem from TargetDir.
+func UnmountOverlay(targetDir string) error {
+	if targetDir == "" {
+		return errors.New("safebox: target directory cannot be empty")
+	}
+	if err := syscall.Unmount(targetDir, 0); err != nil {
+		return fmt.Errorf("safebox: failed to unmount overlayfs: %w", err)
+	}
+	return nil
+}

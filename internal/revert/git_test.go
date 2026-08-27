@@ -5,37 +5,39 @@ import (
 	"os"
 	osexec "os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := osexec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test User",
+		"GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=Test User",
+		"GIT_COMMITTER_EMAIL=test@example.com",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v, output: %s", args, err, string(out))
+	}
+}
 
 func setupTestGitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	runGit := func(args ...string) {
-		cmd := osexec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Test User",
-			"GIT_AUTHOR_EMAIL=test@example.com",
-			"GIT_COMMITTER_NAME=Test User",
-			"GIT_COMMITTER_EMAIL=test@example.com",
-		)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v failed: %v, output: %s", args, err, string(out))
-		}
-	}
-
-	runGit("init")
-	runGit("config", "user.name", "Test User")
-	runGit("config", "user.email", "test@example.com")
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	// Create initial commit
 	initialFile := filepath.Join(dir, "initial.txt")
 	if err := os.WriteFile(initialFile, []byte("initial content\n"), 0600); err != nil {
 		t.Fatalf("failed to write initial file: %v", err)
 	}
-	runGit("add", "initial.txt")
-	runGit("commit", "-m", "initial commit")
+	runGit(t, dir, "add", "initial.txt")
+	runGit(t, dir, "commit", "-m", "initial commit")
 
 	return dir
 }
@@ -102,20 +104,8 @@ func TestGetStatusChanges(t *testing.T) {
 	if err := os.WriteFile(toBeDeletedFile, []byte("to be deleted\n"), 0600); err != nil {
 		t.Fatalf("failed to write delete_me file: %v", err)
 	}
-	addCmd := osexec.Command("git", "-C", gitDir, "add", "delete_me.txt")
-	if err := addCmd.Run(); err != nil {
-		t.Fatalf("git add failed: %v", err)
-	}
-	commitCmd := osexec.Command("git", "-C", gitDir, "commit", "-m", "add delete_me")
-	commitCmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=Test User",
-		"GIT_AUTHOR_EMAIL=test@example.com",
-		"GIT_COMMITTER_NAME=Test User",
-		"GIT_COMMITTER_EMAIL=test@example.com",
-	)
-	if err := commitCmd.Run(); err != nil {
-		t.Fatalf("git commit failed: %v", err)
-	}
+	runGit(t, dirOrPath(gitDir), "add", "delete_me.txt")
+	runGit(t, dirOrPath(gitDir), "commit", "-m", "add delete_me")
 	if err := os.Remove(toBeDeletedFile); err != nil {
 		t.Fatalf("failed to remove delete_me file: %v", err)
 	}
@@ -129,18 +119,79 @@ func TestGetStatusChanges(t *testing.T) {
 		t.Fatalf("expected 3 changes, got %d: %+v", len(changes), changes)
 	}
 
-	changeMap := make(map[string]FileChangeType)
+	changeMap := make(map[string]FileChange)
 	for _, c := range changes {
-		changeMap[c.Path] = c.Type
+		changeMap[c.Path] = c
 	}
 
-	if changeMap["untracked.txt"] != ChangeUntracked {
-		t.Errorf("expected untracked.txt to be ChangeUntracked, got %v", changeMap["untracked.txt"])
+	if changeMap["untracked.txt"].Type != ChangeUntracked || changeMap["untracked.txt"].StatusCode != "??" {
+		t.Errorf("unexpected untracked change: %+v", changeMap["untracked.txt"])
 	}
-	if changeMap["initial.txt"] != ChangeModified {
-		t.Errorf("expected initial.txt to be ChangeModified, got %v", changeMap["initial.txt"])
+	if changeMap["initial.txt"].Type != ChangeModified || changeMap["initial.txt"].StatusCode != " M" {
+		t.Errorf("unexpected modified change: %+v", changeMap["initial.txt"])
 	}
-	if changeMap["delete_me.txt"] != ChangeDeleted {
-		t.Errorf("expected delete_me.txt to be ChangeDeleted, got %v", changeMap["delete_me.txt"])
+	if changeMap["delete_me.txt"].Type != ChangeDeleted || !strings.Contains(changeMap["delete_me.txt"].StatusCode, "D") {
+		t.Errorf("unexpected deleted change: %+v", changeMap["delete_me.txt"])
+	}
+}
+
+func dirOrPath(dir string) string {
+	return dir
+}
+
+func TestGetStatusStagedAdded(t *testing.T) {
+	gitDir := setupTestGitRepo(t)
+	stagedFile := filepath.Join(gitDir, "staged.txt")
+	if err := os.WriteFile(stagedFile, []byte("staged content\n"), 0600); err != nil {
+		t.Fatalf("failed to write staged file: %v", err)
+	}
+	runGit(t, gitDir, "add", "staged.txt")
+
+	changes, err := GetStatus(gitDir)
+	if err != nil {
+		t.Fatalf("GetStatus failed: %v", err)
+	}
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d: %+v", len(changes), changes)
+	}
+	if changes[0].Path != "staged.txt" || changes[0].Type != ChangeAdded || changes[0].StatusCode != "A " {
+		t.Errorf("unexpected staged change: %+v", changes[0])
+	}
+}
+
+func TestGetStatusRename(t *testing.T) {
+	gitDir := setupTestGitRepo(t)
+	runGit(t, gitDir, "mv", "initial.txt", "renamed.txt")
+
+	changes, err := GetStatus(gitDir)
+	if err != nil {
+		t.Fatalf("GetStatus failed: %v", err)
+	}
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d: %+v", len(changes), changes)
+	}
+	if changes[0].Path != "renamed.txt" || changes[0].Type != ChangeModified || changes[0].StatusCode != "R " {
+		t.Errorf("unexpected rename change: %+v", changes[0])
+	}
+}
+
+func TestGetStatusUTF8(t *testing.T) {
+	gitDir := setupTestGitRepo(t)
+	utf8File := filepath.Join(gitDir, "файл.txt")
+	if err := os.WriteFile(utf8File, []byte("utf8 content\n"), 0600); err != nil {
+		t.Fatalf("failed to write utf8 file: %v", err)
+	}
+
+	changes, err := GetStatus(gitDir)
+	if err != nil {
+		t.Fatalf("GetStatus failed: %v", err)
+	}
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d: %+v", len(changes), changes)
+	}
+	// Git status porcelain quotes non-ASCII by default or outputs raw depending on core.quotepath.
+	// Either way, it must detect the untracked file change without errors.
+	if changes[0].Type != ChangeUntracked {
+		t.Errorf("expected ChangeUntracked, got %+v", changes[0])
 	}
 }

@@ -1,9 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	osexec "os/exec"
 
+	"safebox/internal/exec"
+	"safebox/internal/isolation"
 	"safebox/internal/ui"
 )
 
@@ -37,16 +41,24 @@ func main() {
 			printUsage()
 			os.Exit(1)
 		}
-		// CLI routing stub for T1.1; T1.2 and T1.4 will hook namespace re-exec and syscall.Exec
-		fmt.Fprintf(os.Stdout, "%s routing run command: %v\n", ui.StyleAllowed.Render("OK"), args)
+		if err := isolation.ReexecChild(args); err != nil {
+			var exitErr *osexec.ExitError
+			if errors.As(err, &exitErr) {
+				os.Exit(exitErr.ExitCode())
+			}
+			fmt.Fprintf(os.Stderr, "%s %v\n", ui.StyleDenied.Render("ERROR"), err)
+			os.Exit(1)
+		}
 
 	case "__child__":
-		// Hidden entrypoint for namespace re-exec (T1.2)
 		if len(args) == 0 {
 			fmt.Fprintf(os.Stderr, "%s safebox __child__: missing wrapped command\n", ui.StyleDenied.Render("ERROR"))
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stdout, "%s entering child namespace handler\n", ui.StyleAllowed.Render("OK"))
+		if err := exec.Run(args); err != nil {
+			fmt.Fprintf(os.Stderr, "%s safebox: exec failed: %v\n", ui.StyleDenied.Render("ERROR"), err)
+			os.Exit(1)
+		}
 
 	case "diff":
 		// Phase 3 stub

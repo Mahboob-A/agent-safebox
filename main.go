@@ -55,6 +55,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%s safebox __child__: missing wrapped command\n", ui.StyleDenied.Render("ERROR"))
 			os.Exit(1)
 		}
+		if err := isolation.ApplyLandlock(); err != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n", ui.StyleDenied.Render("ERROR"), err)
+			os.Exit(1)
+		}
 		if err := exec.Run(args); err != nil {
 			fmt.Fprintf(os.Stderr, "%s safebox: exec failed: %v\n", ui.StyleDenied.Render("ERROR"), err)
 			os.Exit(1)

@@ -13,8 +13,8 @@ func TestDefaultSysProcAttr(t *testing.T) {
 	}
 
 	expectedFlags := uintptr(syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS | syscall.CLONE_NEWNET)
-	if attr.Cloneflags&expectedFlags != expectedFlags {
-		t.Fatalf("expected Cloneflags to include CLONE_NEWUSER, CLONE_NEWNS, and CLONE_NEWNET; got %v", attr.Cloneflags)
+	if attr.Cloneflags != expectedFlags {
+		t.Fatalf("expected Cloneflags == %v, got %v", expectedFlags, attr.Cloneflags)
 	}
 
 	if len(attr.UidMappings) != 1 {

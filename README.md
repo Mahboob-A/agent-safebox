@@ -69,8 +69,8 @@ Safebox has zero C-library dependencies and compiles to a single standalone bina
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/safebox.git
-cd safebox
+git clone https://github.com/mahboob-a/agent-safebox.git
+cd agent-safebox
 
 # Compile the standalone binary
 go build -o safebox .

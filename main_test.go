@@ -2,11 +2,13 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -473,4 +475,136 @@ func TestCLIRevertYesEqualsTrue(t *testing.T) {
 	if _, err := os.Stat(dirtyFile); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("expected dirty.txt to be deleted, err: %v", err)
 	}
+}
+
+func TestCLIShadowLifecycle(t *testing.T) {
+	tmpDir := t.TempDir()
+	lowerDir := filepath.Join(tmpDir, "lower")
+	upperDir := filepath.Join(tmpDir, "upper")
+	workDir := filepath.Join(tmpDir, "work")
+	mergedDir := filepath.Join(tmpDir, "merged")
+
+	for _, d := range []string{lowerDir, upperDir, workDir, mergedDir} {
+		if err := os.MkdirAll(d, 0700); err != nil {
+			t.Fatalf("failed to create dir %s: %v", d, err)
+		}
+	}
+
+	// 1. Initial non-git workspace state
+	if err := os.WriteFile(filepath.Join(lowerDir, "base.txt"), []byte("base v1\n"), 0600); err != nil {
+		t.Fatalf("failed to write base.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(lowerDir, "to_delete.txt"), []byte("to delete\n"), 0600); err != nil {
+		t.Fatalf("failed to write to_delete.txt: %v", err)
+	}
+
+	// 2. Perform mutations inside an unprivileged OverlayFS subprocess
+	helperCmd := exec.Command(os.Args[0], "-test.run=TestCLIShadowLifecycleHelper")
+	helperCmd.Env = append(os.Environ(),
+		"GO_WANT_CLI_SHADOW_HELPER=1",
+		"SAFEBOX_TEST_LOWER="+lowerDir,
+		"SAFEBOX_TEST_UPPER="+upperDir,
+		"SAFEBOX_TEST_WORK="+workDir,
+		"SAFEBOX_TEST_MERGED="+mergedDir,
+	)
+	helperCmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS,
+		UidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
+		},
+		GidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getgid(), Size: 1},
+		},
+	}
+	if out, err := helperCmd.CombinedOutput(); err != nil {
+		t.Fatalf("shadow helper failed: %v, output: %s", err, string(out))
+	}
+
+	// 3. Run safebox diff --shadow=<upperDir> from lowerDir (non-git dir)
+	diffOut, diffErr := runCLIInDir(lowerDir, "diff", "--shadow="+upperDir)
+	if diffErr != nil {
+		t.Fatalf("safebox diff --shadow failed: %v, output: %s", diffErr, string(diffOut))
+	}
+	diffStr := string(diffOut)
+	if !strings.Contains(diffStr, "+ [ADDED]") || !strings.Contains(diffStr, "created.txt") {
+		t.Errorf("expected added created.txt in diff output, got: %s", diffStr)
+	}
+	if !strings.Contains(diffStr, "~ [MODIFIED]") || !strings.Contains(diffStr, "base.txt") {
+		t.Errorf("expected modified base.txt in diff output, got: %s", diffStr)
+	}
+	if !strings.Contains(diffStr, "- [DELETED]") || !strings.Contains(diffStr, "to_delete.txt") {
+		t.Errorf("expected deleted to_delete.txt in diff output, got: %s", diffStr)
+	}
+
+	// 4. Run safebox apply --shadow=<upperDir>
+	applyOut, applyErr := runCLIInDir(lowerDir, "apply", "--shadow="+upperDir)
+	if applyErr != nil {
+		t.Fatalf("safebox apply --shadow failed: %v, output: %s", applyErr, string(applyOut))
+	}
+	if !strings.Contains(string(applyOut), "Shadow changes applied to working directory.") {
+		t.Errorf("expected confirmation in apply output, got: %s", string(applyOut))
+	}
+
+	// 5. Direct filesystem verification of lowerDir
+	baseContent, err := os.ReadFile(filepath.Join(lowerDir, "base.txt"))
+	if err != nil {
+		t.Fatalf("failed to read base.txt: %v", err)
+	}
+	if string(baseContent) != "base v2 modified\n" {
+		t.Errorf("expected base.txt updated, got: %s", string(baseContent))
+	}
+
+	createdContent, err := os.ReadFile(filepath.Join(lowerDir, "created.txt"))
+	if err != nil {
+		t.Fatalf("failed to read created.txt: %v", err)
+	}
+	if string(createdContent) != "newly created\n" {
+		t.Errorf("expected created.txt created, got: %s", string(createdContent))
+	}
+
+	if _, err := os.Stat(filepath.Join(lowerDir, "to_delete.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected to_delete.txt to be removed from lowerDir, err: %v", err)
+	}
+}
+
+func TestCLIShadowLifecycleHelper(t *testing.T) {
+	if os.Getenv("GO_WANT_CLI_SHADOW_HELPER") != "1" {
+		return
+	}
+
+	lowerDir := os.Getenv("SAFEBOX_TEST_LOWER")
+	upperDir := os.Getenv("SAFEBOX_TEST_UPPER")
+	workDir := os.Getenv("SAFEBOX_TEST_WORK")
+	mergedDir := os.Getenv("SAFEBOX_TEST_MERGED")
+
+	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerDir, upperDir, workDir)
+	if err := syscall.Mount("overlay", mergedDir, "overlay", 0, opts); err != nil {
+		os.Stderr.WriteString("mount error: " + err.Error() + "\n")
+		os.Exit(1)
+	}
+
+	// 1. Modify
+	if err := os.WriteFile(filepath.Join(mergedDir, "base.txt"), []byte("base v2 modified\n"), 0600); err != nil {
+		os.Stderr.WriteString("modify error: " + err.Error() + "\n")
+		os.Exit(2)
+	}
+
+	// 2. Add
+	if err := os.WriteFile(filepath.Join(mergedDir, "created.txt"), []byte("newly created\n"), 0600); err != nil {
+		os.Stderr.WriteString("create error: " + err.Error() + "\n")
+		os.Exit(3)
+	}
+
+	// 3. Delete
+	if err := os.Remove(filepath.Join(mergedDir, "to_delete.txt")); err != nil {
+		os.Stderr.WriteString("delete error: " + err.Error() + "\n")
+		os.Exit(4)
+	}
+
+	if err := syscall.Unmount(mergedDir, 0); err != nil {
+		os.Stderr.WriteString("unmount error: " + err.Error() + "\n")
+		os.Exit(5)
+	}
+
+	os.Exit(0)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	osexec "os/exec"
+	"strings"
 
 	"safebox/internal/exec"
 	"safebox/internal/isolation"
@@ -19,10 +20,11 @@ func printSubcommandError(subcommand string, err error) {
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage: safebox <command> [arguments]\n\n")
 	fmt.Fprintf(os.Stderr, "Commands:\n")
-	fmt.Fprintf(os.Stderr, "  run [--] <cmd...>   Run a command inside the sandbox\n")
-	fmt.Fprintf(os.Stderr, "  diff                Show modified, added, and deleted files\n")
-	fmt.Fprintf(os.Stderr, "  revert [--yes|-y]   Discard all working tree changes\n")
-	fmt.Fprintf(os.Stderr, "  help                Show help documentation\n")
+	fmt.Fprintf(os.Stderr, "  run [--] <cmd...>             Run a command inside the sandbox\n")
+	fmt.Fprintf(os.Stderr, "  diff [--shadow=<dir>]         Show modified, added, and deleted files\n")
+	fmt.Fprintf(os.Stderr, "  revert [--yes|-y]             Discard all working tree changes\n")
+	fmt.Fprintf(os.Stderr, "  apply --shadow=<dir>          Apply shadow changes to working directory\n")
+	fmt.Fprintf(os.Stderr, "  help                          Show help documentation\n")
 }
 
 func main() {
@@ -70,11 +72,27 @@ func main() {
 		}
 
 	case "diff":
+		var shadowUpper string
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "--shadow=") {
+				shadowUpper = strings.TrimPrefix(arg, "--shadow=")
+			}
+		}
+
 		cwd, err := os.Getwd()
 		if err != nil {
 			printSubcommandError("diff", fmt.Errorf("failed to get working directory: %w", err))
 			os.Exit(1)
 		}
+
+		if shadowUpper != "" {
+			if err := revert.RunShadowDiff(cwd, shadowUpper, os.Stdout); err != nil {
+				printSubcommandError("diff", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+
 		if err := revert.RunDiff(cwd, os.Stdout); err != nil {
 			printSubcommandError("diff", err)
 			os.Exit(1)
@@ -101,6 +119,30 @@ func main() {
 			printSubcommandError("revert", err)
 			os.Exit(1)
 		}
+
+	case "apply":
+		var shadowUpper string
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "--shadow=") {
+				shadowUpper = strings.TrimPrefix(arg, "--shadow=")
+			}
+		}
+		if shadowUpper == "" {
+			printSubcommandError("apply", errors.New("--shadow=<dir> argument is required"))
+			os.Exit(1)
+		}
+
+		cwd, err := os.Getwd()
+		if err != nil {
+			printSubcommandError("apply", fmt.Errorf("failed to get working directory: %w", err))
+			os.Exit(1)
+		}
+
+		if err := revert.ApplyShadowChanges(cwd, shadowUpper); err != nil {
+			printSubcommandError("apply", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stdout, "%s\n", ui.StyleAllowed.Render("Shadow changes applied to working directory."))
 
 	case "help", "-h", "--help":
 		printUsage()

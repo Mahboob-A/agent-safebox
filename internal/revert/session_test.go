@@ -3,6 +3,7 @@ package revert
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -111,5 +112,49 @@ func TestMostRecentSessionNotFound(t *testing.T) {
 	_, err := MostRecentSession(otherDir, false)
 	if err == nil || err != ErrNoSessionFound {
 		t.Fatalf("expected ErrNoSessionFound, got: %v", err)
+	}
+}
+
+func TestPruneSessions(t *testing.T) {
+	tmpRoot := t.TempDir()
+	t.Setenv("SAFEBOX_SESSION_ROOT", tmpRoot)
+
+	workDir := t.TempDir()
+
+	// 1. Create session 1 (simulate old session)
+	sess1, err := CreateSession(workDir)
+	if err != nil {
+		t.Fatalf("failed to create session 1: %v", err)
+	}
+
+	// 2. Create session 2 (recent session)
+	sess2, err := CreateSession(workDir)
+	if err != nil {
+		t.Fatalf("failed to create session 2: %v", err)
+	}
+
+	// Artificially age session 1 to 48 hours ago
+	sess1.CreatedAt = time.Now().Add(-48 * time.Hour)
+	metaPath := filepath.Join(sess1.BaseDir, "session.json")
+	data, _ := os.ReadFile(metaPath)
+	// Replace timestamp
+	oldData := strings.Replace(string(data), time.Now().UTC().Format("2006-01-02"), "2020-01-01", 1)
+	_ = os.WriteFile(metaPath, []byte(oldData), 0600)
+
+	// Prune sessions older than 24 hours
+	pruned, err := PruneSessions(24 * time.Hour)
+	if err != nil {
+		t.Fatalf("PruneSessions failed: %v", err)
+	}
+	if pruned != 1 {
+		t.Errorf("expected 1 pruned session, got %d", pruned)
+	}
+
+	// Verify sess1 is gone and sess2 remains
+	if _, err := os.Stat(sess1.BaseDir); !os.IsNotExist(err) {
+		t.Errorf("expected old session directory %s to be purged", sess1.BaseDir)
+	}
+	if _, err := os.Stat(sess2.BaseDir); err != nil {
+		t.Errorf("expected recent session directory %s to remain intact", sess2.BaseDir)
 	}
 }

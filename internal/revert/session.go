@@ -36,6 +36,48 @@ func SessionRoot() string {
 	return filepath.Join(os.TempDir(), "safebox", "sessions")
 }
 
+// PruneSessions scans the session root directory and purges sessions older than maxAge.
+// Returns the count of pruned sessions.
+func PruneSessions(maxAge time.Duration) (int, error) {
+	if maxAge <= 0 {
+		return 0, nil
+	}
+
+	root := SessionRoot()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("safebox: failed to read session root directory: %w", err)
+	}
+
+	now := time.Now()
+	prunedCount := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		sessDir := filepath.Join(root, entry.Name())
+		sess, err := LoadSession(sessDir)
+		if err != nil {
+			if fi, sErr := entry.Info(); sErr == nil && now.Sub(fi.ModTime()) > maxAge {
+				_ = os.RemoveAll(sessDir)
+				prunedCount++
+			}
+			continue
+		}
+
+		if now.Sub(sess.CreatedAt) > maxAge {
+			if err := DiscardSession(sess); err == nil {
+				prunedCount++
+			}
+		}
+	}
+
+	return prunedCount, nil
+}
+
 // CreateSession initializes a new session directory structure for lowerDir,
 // creates upper, work, and merged directories, and persists session metadata.
 func CreateSession(lowerDir string) (*Session, error) {
@@ -46,6 +88,9 @@ func CreateSession(lowerDir string) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("safebox: cannot resolve absolute path for lower directory: %w", err)
 	}
+
+	// Automatic best-effort pruning of stale sessions older than 24 hours
+	_, _ = PruneSessions(24 * time.Hour)
 
 	sessionID := fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid())
 	baseDir := filepath.Join(SessionRoot(), sessionID)

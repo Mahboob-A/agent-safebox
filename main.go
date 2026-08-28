@@ -71,11 +71,16 @@ func hasYesFlag(args []string) bool {
 	return false
 }
 
-func parseAllowPaths(args []string) (allowPaths []string, cmdArgs []string) {
+func parseAllowPaths(args []string) (allowPaths []string, cmdArgs []string, err error) {
 	i := 0
 	for i < len(args) {
 		arg := args[i]
 		if arg == "--" {
+			for _, rest := range args[i+1:] {
+				if strings.HasPrefix(rest, "--allow-path=") || rest == "--allow-path" {
+					return nil, nil, errors.New("--allow-path must precede the -- delimiter; current invocation places it inside the wrapped command arguments")
+				}
+			}
 			cmdArgs = append(cmdArgs, args[i+1:]...)
 			break
 		}
@@ -95,7 +100,7 @@ func parseAllowPaths(args []string) (allowPaths []string, cmdArgs []string) {
 		cmdArgs = append(cmdArgs, args[i:]...)
 		break
 	}
-	return allowPaths, cmdArgs
+	return allowPaths, cmdArgs, nil
 }
 
 func printUsage() {
@@ -120,7 +125,12 @@ func main() {
 
 	switch subcommand {
 	case "run":
-		allowPaths, cmdArgs := parseAllowPaths(args)
+		allowPaths, cmdArgs, err := parseAllowPaths(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s safebox run: %v\n\n", ui.StyleDenied.Render("ERROR"), err)
+			printUsage()
+			os.Exit(1)
+		}
 		if len(cmdArgs) == 0 {
 			fmt.Fprintf(os.Stderr, "%s safebox run: no command specified\n\n", ui.StyleDenied.Render("ERROR"))
 			printUsage()
@@ -140,7 +150,11 @@ func main() {
 
 	case "__child__":
 		runtime.LockOSThread()
-		allowPaths, cmdArgs := parseAllowPaths(args)
+		allowPaths, cmdArgs, err := parseAllowPaths(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s safebox __child__: %v\n", ui.StyleDenied.Render("ERROR"), err)
+			os.Exit(1)
+		}
 		if len(cmdArgs) == 0 {
 			fmt.Fprintf(os.Stderr, "%s safebox __child__: missing wrapped command\n", ui.StyleDenied.Render("ERROR"))
 			os.Exit(1)

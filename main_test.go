@@ -140,6 +140,16 @@ func TestCLIActionableHintOnDenial(t *testing.T) {
 	}
 }
 
+func TestCLIRunAllowPathAfterDoubleDashFails(t *testing.T) {
+	out, err := runCLI("run", "--", "--allow-path=/tmp", "--", "/bin/true")
+	if err == nil {
+		t.Fatalf("expected error when --allow-path placed after --, got success: %s", string(out))
+	}
+	if !strings.Contains(string(out), "--allow-path must precede") {
+		t.Errorf("expected explicit error about --allow-path placement, got: %s", string(out))
+	}
+}
+
 func TestCLIRunExitCodePropagation(t *testing.T) {
 	cmd := exec.Command(testBinaryPath, "run", "--", "sh", "-c", "exit 42")
 	cmd.Env = append(os.Environ(), "LANG=C")

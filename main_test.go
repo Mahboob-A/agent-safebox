@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -1128,6 +1129,7 @@ func TestCLIBenchmarkStartupLatency(t *testing.T) {
 
 	const iterations = 20
 	var totalDuration time.Duration
+	samples := make([]time.Duration, 0, iterations)
 	for i := 0; i < iterations; i++ {
 		start := time.Now()
 		cmd := exec.Command(testBinaryPath, "run", "--quiet", "--", "true")
@@ -1135,11 +1137,17 @@ func TestCLIBenchmarkStartupLatency(t *testing.T) {
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("iteration %d failed: %v", i, err)
 		}
-		totalDuration += time.Since(start)
+		elapsed := time.Since(start)
+		samples = append(samples, elapsed)
+		totalDuration += elapsed
 	}
 
+	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+	p50 := samples[len(samples)*50/100]
+	p95 := samples[len(samples)*95/100]
 	avgLatency := totalDuration / iterations
-	t.Logf("Average startup latency across %d runs: %v", iterations, avgLatency)
+
+	t.Logf("Startup latency over %d runs: avg=%v p50=%v p95=%v", iterations, avgLatency, p50, p95)
 
 	// NFR3 sets 50ms startup overhead target
 	if avgLatency > 50*time.Millisecond {

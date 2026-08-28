@@ -1,9 +1,9 @@
 package revert
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -133,13 +133,16 @@ func TestPruneSessions(t *testing.T) {
 		t.Fatalf("failed to create session 2: %v", err)
 	}
 
-	// Artificially age session 1 to 48 hours ago
-	sess1.CreatedAt = time.Now().Add(-48 * time.Hour)
+	// Artificially age session 1 to 48 hours ago via JSON serialization
+	sess1.CreatedAt = time.Now().Add(-48 * time.Hour).UTC()
+	data, err := json.MarshalIndent(sess1, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal aged session: %v", err)
+	}
 	metaPath := filepath.Join(sess1.BaseDir, "session.json")
-	data, _ := os.ReadFile(metaPath)
-	// Replace timestamp
-	oldData := strings.Replace(string(data), time.Now().UTC().Format("2006-01-02"), "2020-01-01", 1)
-	_ = os.WriteFile(metaPath, []byte(oldData), 0600)
+	if err := os.WriteFile(metaPath, data, 0600); err != nil {
+		t.Fatalf("failed to write aged session metadata: %v", err)
+	}
 
 	// Prune sessions older than 24 hours
 	pruned, err := PruneSessions(24 * time.Hour)

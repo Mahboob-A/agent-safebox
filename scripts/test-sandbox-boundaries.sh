@@ -114,12 +114,20 @@ if [[ -x "/root/.local/bin/agy" ]]; then
     fi
     echo "OK: Real tool denial and remediation hint verified."
 
-    OUTPUT=$("$BINARY" run --allow-path=/root/.local/bin -- /root/.local/bin/agy --version 2>&1)
-    if [[ "$OUTPUT" != *"1.1.22"* ]]; then
-        echo "FAIL: Real agy execution with --allow-path failed." >&2
+    set +e
+    OUTPUT_STDOUT=$("$BINARY" run --allow-path=/root/.local/bin -- /root/.local/bin/agy --version 2>/dev/null)
+    EXIT_ALLOWED=$?
+    OUTPUT_STDERR=$("$BINARY" run --allow-path=/root/.local/bin -- /root/.local/bin/agy --version 2>&1 >/dev/null)
+    set -e
+    if [[ $EXIT_ALLOWED -ne 0 ]]; then
+        echo "FAIL: Real agy execution with --allow-path failed (exit $EXIT_ALLOWED)." >&2
         exit 1
     fi
-    if [[ "$OUTPUT" != *"[safebox]"* ]]; then
+    if [[ -z "$OUTPUT_STDOUT" ]]; then
+        echo "FAIL: Real agy produced empty stdout with --allow-path." >&2
+        exit 1
+    fi
+    if [[ "$OUTPUT_STDERR" != *"[safebox]"* ]]; then
         echo "FAIL: Execution trace missing from real agy execution." >&2
         exit 1
     fi

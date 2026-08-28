@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -49,12 +50,12 @@ func TestCLIRunEmptyArgs(t *testing.T) {
 }
 
 func TestCLIRunUIDMapping(t *testing.T) {
-	out, err := runCLI("run", "--", "id", "-u")
+	stdout, stderr, err := runCLISplit("", "run", "--", "id", "-u")
 	if err != nil {
-		t.Fatalf("run id -u failed: %v, output: %s", err, string(out))
+		t.Fatalf("run id -u failed: %v, stderr: %s", err, stderr)
 	}
-	if strings.TrimSpace(string(out)) != "0" {
-		t.Errorf("expected container UID 0, got %s", strings.TrimSpace(string(out)))
+	if strings.TrimSpace(stdout) != "0" {
+		t.Errorf("expected container UID 0, got %s", strings.TrimSpace(stdout))
 	}
 }
 
@@ -167,12 +168,12 @@ func TestCLIRunExitCodePropagation(t *testing.T) {
 }
 
 func TestCLIRunPIDIsolation(t *testing.T) {
-	out, err := runCLI("run", "--", "sh", "-c", "echo $PPID")
+	stdout, stderr, err := runCLISplit("", "run", "--", "sh", "-c", "echo $PPID")
 	if err != nil {
-		t.Fatalf("run failed: %v, output: %s", err, string(out))
+		t.Fatalf("run failed: %v, stderr: %s", err, stderr)
 	}
-	if strings.TrimSpace(string(out)) != "1" {
-		t.Errorf("expected wrapped process PPID == 1, got %s", strings.TrimSpace(string(out)))
+	if strings.TrimSpace(stdout) != "1" {
+		t.Errorf("expected wrapped process PPID == 1 in stdout, got %s", strings.TrimSpace(stdout))
 	}
 }
 
@@ -944,4 +945,95 @@ func TestCLISandboxSubdirApplyDoesNotApplyParentSession(t *testing.T) {
 
 	// Clean up
 	_, _ = runCLIInDir(parent, "revert", "--yes")
+}
+
+func runCLISplit(dir string, args ...string) (string, string, error) {
+	cmd := exec.Command(testBinaryPath, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "LANG=C")
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+	err := cmd.Run()
+	return stdoutBuf.String(), stderrBuf.String(), err
+}
+
+func TestCLIRunDefaultTraceOutput(t *testing.T) {
+	dir := t.TempDir()
+	stdout, stderr, err := runCLISplit(dir, "run", "--", "echo", "trace_payload")
+	if err != nil {
+		t.Fatalf("run failed: %v, stderr: %s", err, stderr)
+	}
+	if !strings.Contains(stdout, "trace_payload") {
+		t.Errorf("expected trace_payload in stdout, got: %q", stdout)
+	}
+	if !strings.Contains(stderr, "[safebox]") {
+		t.Fatalf("expected [safebox] prefix in stderr, got: %q", stderr)
+	}
+	for _, step := range []string{"session initialize", "namespace isolation", "overlayfs mount", "landlock restrict", "exec handoff"} {
+		if !strings.Contains(stderr, step) {
+			t.Errorf("expected step %q in stderr trace, got:\n%s", step, stderr)
+		}
+	}
+}
+
+func TestCLIRunQuietFlagSuppressesTrace(t *testing.T) {
+	dir := t.TempDir()
+	for _, flag := range []string{"--quiet", "-q"} {
+		stdout, stderr, err := runCLISplit(dir, "run", flag, "--", "echo", "quiet_payload")
+		if err != nil {
+			t.Fatalf("run with %s failed: %v, stderr: %s", flag, err, stderr)
+		}
+		if !strings.Contains(stdout, "quiet_payload") {
+			t.Errorf("expected quiet_payload in stdout with %s, got: %q", flag, stdout)
+		}
+		if strings.Contains(stderr, "[safebox]") {
+			t.Errorf("expected no [safebox] trace lines in stderr with %s, got: %q", flag, stderr)
+		}
+	}
+}
+
+func TestCLISubcommandsTraceOutput(t *testing.T) {
+	dir := t.TempDir()
+	_, _, err := runCLISplit(dir, "run", "--", "touch", "item.txt")
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	// diff trace
+	_, diffErr, err := runCLISplit(dir, "diff")
+	if err != nil {
+		t.Fatalf("diff failed: %v", err)
+	}
+	if !strings.Contains(diffErr, "[safebox]") || !strings.Contains(diffErr, "diff computation") {
+		t.Errorf("expected diff trace in stderr, got: %q", diffErr)
+	}
+
+	// diff quiet
+	_, diffQuietErr, err := runCLISplit(dir, "diff", "--quiet")
+	if err != nil {
+		t.Fatalf("diff --quiet failed: %v", err)
+	}
+	if strings.Contains(diffQuietErr, "[safebox]") {
+		t.Errorf("expected quiet diff without trace, got: %q", diffQuietErr)
+	}
+
+	// apply trace
+	_, applyErr, err := runCLISplit(dir, "apply", "--yes")
+	if err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if !strings.Contains(applyErr, "[safebox]") || !strings.Contains(applyErr, "apply changes") {
+		t.Errorf("expected apply trace in stderr, got: %q", applyErr)
+	}
+
+	// revert trace
+	_, _, _ = runCLISplit(dir, "run", "--", "touch", "revert_item.txt")
+	_, revertErr, err := runCLISplit(dir, "revert", "--yes")
+	if err != nil {
+		t.Fatalf("revert failed: %v", err)
+	}
+	if !strings.Contains(revertErr, "[safebox]") || !strings.Contains(revertErr, "discard session") {
+		t.Errorf("expected revert trace in stderr, got: %q", revertErr)
+	}
 }

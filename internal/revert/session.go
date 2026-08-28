@@ -100,7 +100,9 @@ func LoadSession(baseDir string) (*Session, error) {
 }
 
 // MostRecentSession finds the latest session associated with targetDir or any of its ancestors.
-func MostRecentSession(targetDir string) (*Session, error) {
+// When strict is true, only exact LowerDir matches are returned (use for destructive ops like revert and apply).
+// When strict is false, prefix matches are also accepted (use for diff discovery from subdirs).
+func MostRecentSession(targetDir string, strict bool) (*Session, error) {
 	if targetDir == "" {
 		return nil, errors.New("safebox: target directory cannot be empty")
 	}
@@ -128,9 +130,16 @@ func MostRecentSession(targetDir string) (*Session, error) {
 		if err != nil {
 			continue
 		}
-		if sess.LowerDir == absTarget || strings.HasPrefix(absTarget, sess.LowerDir+string(filepath.Separator)) {
-			matching = append(matching, sess)
+		if strict {
+			if sess.LowerDir != absTarget {
+				continue
+			}
+		} else {
+			if sess.LowerDir != absTarget && !strings.HasPrefix(absTarget, sess.LowerDir+string(filepath.Separator)) {
+				continue
+			}
 		}
+		matching = append(matching, sess)
 	}
 
 	if len(matching) == 0 {

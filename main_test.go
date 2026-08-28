@@ -892,3 +892,56 @@ func TestCLISandboxAutoLifecycle(t *testing.T) {
 		t.Fatalf("expected to_discard.txt NOT to exist after revert")
 	}
 }
+
+func TestCLISandboxSubdirRevertDoesNotDiscardParentSession(t *testing.T) {
+	parent := t.TempDir()
+	sub := filepath.Join(parent, "sub")
+	if err := os.MkdirAll(sub, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run from parent
+	out, err := runCLIInDir(parent, "run", "--", "sh", "-c", "echo P > new_file.txt")
+	if err != nil {
+		t.Fatalf("parent run: %v\n%s", err, out)
+	}
+
+	// Revert from sub - must NOT discard parent's session
+	_, _ = runCLIInDir(sub, "revert", "--yes")
+
+	// Verify parent session still discoverable (diff shows ADDED)
+	out, err = runCLIInDir(parent, "diff")
+	if err != nil {
+		t.Fatalf("parent diff after subdir revert: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "[ADDED]") {
+		t.Errorf("expected parent's session to be intact after subdir revert; got: %s", string(out))
+	}
+
+	// Clean up
+	_, _ = runCLIInDir(parent, "revert", "--yes")
+}
+
+func TestCLISandboxSubdirApplyDoesNotApplyParentSession(t *testing.T) {
+	parent := t.TempDir()
+	sub := filepath.Join(parent, "sub")
+	if err := os.MkdirAll(sub, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runCLIInDir(parent, "run", "--", "sh", "-c", "echo P > new_file.txt")
+	if err != nil {
+		t.Fatalf("parent run: %v\n%s", err, out)
+	}
+
+	// Apply from sub - must NOT apply parent's session
+	_, _ = runCLIInDir(sub, "apply", "--yes")
+
+	// Parent's new_file.txt must NOT exist on host
+	if _, err := os.Stat(filepath.Join(parent, "new_file.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("parent's session leaked to host via subdir apply")
+	}
+
+	// Clean up
+	_, _ = runCLIInDir(parent, "revert", "--yes")
+}

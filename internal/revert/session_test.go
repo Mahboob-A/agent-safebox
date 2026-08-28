@@ -42,8 +42,8 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatalf("expected loaded ID %s, got %s", sess.ID, loaded.ID)
 	}
 
-	// 3. Find most recent session
-	found, err := MostRecentSession(workDir)
+	// 3. Find most recent session (strict and non-strict from root)
+	found, err := MostRecentSession(workDir, true)
 	if err != nil {
 		t.Fatalf("failed to find most recent session: %v", err)
 	}
@@ -56,12 +56,19 @@ func TestSessionLifecycle(t *testing.T) {
 	if err := os.MkdirAll(subDir, 0700); err != nil {
 		t.Fatalf("failed to create subDir: %v", err)
 	}
-	foundSub, err := MostRecentSession(subDir)
+	// Non-strict discovery finds parent session
+	foundSub, err := MostRecentSession(subDir, false)
 	if err != nil {
 		t.Fatalf("failed to find most recent session from subdir: %v", err)
 	}
 	if foundSub.ID != sess.ID {
 		t.Fatalf("expected found sub session ID %s, got %s", sess.ID, foundSub.ID)
+	}
+
+	// Strict discovery from subdir returns ErrNoSessionFound
+	_, err = MostRecentSession(subDir, true)
+	if err == nil || err != ErrNoSessionFound {
+		t.Fatalf("expected ErrNoSessionFound for strict subdir lookup, got: %v", err)
 	}
 
 	// 4. Create newer session and verify it is returned as most recent
@@ -70,7 +77,7 @@ func TestSessionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create second session: %v", err)
 	}
-	found2, err := MostRecentSession(workDir)
+	found2, err := MostRecentSession(workDir, true)
 	if err != nil {
 		t.Fatalf("failed to find most recent session after second create: %v", err)
 	}
@@ -87,7 +94,7 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 
 	// Now sess1 is the most recent
-	found1, err := MostRecentSession(workDir)
+	found1, err := MostRecentSession(workDir, true)
 	if err != nil {
 		t.Fatalf("failed to find session after discarding newer session: %v", err)
 	}
@@ -101,7 +108,7 @@ func TestMostRecentSessionNotFound(t *testing.T) {
 	t.Setenv("SAFEBOX_SESSION_ROOT", tmpRoot)
 
 	otherDir := t.TempDir()
-	_, err := MostRecentSession(otherDir)
+	_, err := MostRecentSession(otherDir, false)
 	if err == nil || err != ErrNoSessionFound {
 		t.Fatalf("expected ErrNoSessionFound, got: %v", err)
 	}

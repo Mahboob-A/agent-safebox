@@ -237,7 +237,7 @@ func main() {
 		}
 
 		// Check for active session
-		sess, err := revert.MostRecentSession(cwd)
+		sess, err := revert.MostRecentSession(cwd, false)
 		if err == nil {
 			if err := revert.RunShadowDiff(cwd, sess.UpperDir, os.Stdout); err != nil {
 				printSubcommandError("diff", err)
@@ -260,8 +260,8 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Check for active session
-		sess, err := revert.MostRecentSession(cwd)
+		// Check for active session (strict matching for destructive revert)
+		sess, err := revert.MostRecentSession(cwd, true)
 		if err == nil {
 			if !force {
 				fmt.Fprintf(os.Stdout, "%s Discard active overlay session changes? [y/N]: ", ui.StyleMeta.Render("PROMPT"))
@@ -298,7 +298,7 @@ func main() {
 
 		var sess *revert.Session
 		if shadowUpper == "" {
-			s, err := revert.MostRecentSession(cwd)
+			s, err := revert.MostRecentSession(cwd, true)
 			if err != nil {
 				printSubcommandError("apply", err)
 				os.Exit(1)

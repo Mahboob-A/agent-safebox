@@ -811,3 +811,84 @@ func TestCLIShadowLifecycleHelper(t *testing.T) {
 
 	os.Exit(0)
 }
+
+func TestCLISandboxOverlayWriteIsolation(t *testing.T) {
+	testDir := t.TempDir()
+	out, err := runCLIInDir(testDir, "run", "--", "touch", "isolated.txt")
+	if err != nil {
+		t.Fatalf("safebox run failed: %v, output: %s", err, string(out))
+	}
+
+	// Immediately after run, isolated.txt must NOT exist on host
+	if _, err := os.Stat(filepath.Join(testDir, "isolated.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected isolated.txt NOT to exist on host immediately after run")
+	}
+}
+
+func TestCLISandboxAutoLifecycle(t *testing.T) {
+	testDir := t.TempDir()
+
+	// Initial file
+	initFile := filepath.Join(testDir, "init.txt")
+	if err := os.WriteFile(initFile, []byte("initial\n"), 0600); err != nil {
+		t.Fatalf("failed to create init file: %v", err)
+	}
+
+	// 1. Run commands in sandbox: add file, modify file
+	out, err := runCLIInDir(testDir, "run", "--", "sh", "-c", "touch added.txt && echo 'mutated' >> init.txt")
+	if err != nil {
+		t.Fatalf("safebox run failed: %v, output: %s", err, string(out))
+	}
+
+	// Host remains untouched
+	if _, err := os.Stat(filepath.Join(testDir, "added.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected added.txt NOT to exist on host before apply")
+	}
+
+	// 2. Auto-diff without --shadow
+	diffOut, diffErr := runCLIInDir(testDir, "diff")
+	if diffErr != nil {
+		t.Fatalf("safebox diff failed: %v, output: %s", diffErr, string(diffOut))
+	}
+	diffStr := string(diffOut)
+	if !strings.Contains(diffStr, "+ [ADDED]") || !strings.Contains(diffStr, "added.txt") {
+		t.Errorf("expected added.txt in diff, got: %s", diffStr)
+	}
+	if !strings.Contains(diffStr, "~ [MODIFIED]") || !strings.Contains(diffStr, "init.txt") {
+		t.Errorf("expected init.txt in diff, got: %s", diffStr)
+	}
+
+	// 3. Auto-apply without --shadow
+	applyOut, applyErr := runCLIInDir(testDir, "apply", "--yes")
+	if applyErr != nil {
+		t.Fatalf("safebox apply --yes failed: %v, output: %s", applyErr, string(applyOut))
+	}
+
+	// Now changes are on host
+	if _, err := os.Stat(filepath.Join(testDir, "added.txt")); err != nil {
+		t.Fatalf("expected added.txt to exist on host after apply: %v", err)
+	}
+	content, err := os.ReadFile(initFile)
+	if err != nil || !strings.Contains(string(content), "mutated") {
+		t.Fatalf("expected init.txt to contain 'mutated' on host, got: %s", string(content))
+	}
+
+	// 4. Test revert lifecycle in fresh dir
+	revertDir := t.TempDir()
+	out, err = runCLIInDir(revertDir, "run", "--", "touch", "to_discard.txt")
+	if err != nil {
+		t.Fatalf("safebox run failed: %v, output: %s", err, string(out))
+	}
+
+	revertOut, revertErr := runCLIInDir(revertDir, "revert", "--yes")
+	if revertErr != nil {
+		t.Fatalf("safebox revert --yes failed: %v, output: %s", revertErr, string(revertOut))
+	}
+	if !strings.Contains(string(revertOut), "Overlay session discarded") && !strings.Contains(string(revertOut), "Working tree restored") {
+		t.Errorf("expected session discarded message, got: %s", string(revertOut))
+	}
+
+	if _, err := os.Stat(filepath.Join(revertDir, "to_discard.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected to_discard.txt NOT to exist after revert")
+	}
+}

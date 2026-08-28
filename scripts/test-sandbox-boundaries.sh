@@ -22,12 +22,17 @@ else
     echo "OK: 'safebox run' without command exited non-zero ($EXIT_CODE)."
 fi
 
-echo "=== Boundary Check 2: Working directory write access ==="
+echo "=== Boundary Check 2: Working directory write access (overlay write & apply) ==="
 TEST_FILE=".safebox_test_probe_$$"
 (cd "$SAFEBOX_DIR" && "$BINARY" run -- touch "$TEST_FILE")
 if [[ -f "$SAFEBOX_DIR/$TEST_FILE" ]]; then
+    echo "FAIL: File leaked directly to host before apply! Overlay isolation breached!" >&2
+    exit 1
+fi
+(cd "$SAFEBOX_DIR" && "$BINARY" apply --yes > /dev/null)
+if [[ -f "$SAFEBOX_DIR/$TEST_FILE" ]]; then
     rm -f "$SAFEBOX_DIR/$TEST_FILE"
-    echo "OK: Working directory write allowed."
+    echo "OK: Working directory write allowed via overlay and applied."
 else
     echo "FAIL: Could not write file in working directory inside sandbox." >&2
     exit 1

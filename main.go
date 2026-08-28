@@ -7,7 +7,6 @@ import (
 	osexec "os/exec"
 	"strings"
 
-	"safebox/internal/exec"
 	"safebox/internal/isolation"
 	"safebox/internal/revert"
 	"safebox/internal/ui"
@@ -84,7 +83,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%s %v\n", ui.StyleDenied.Render("ERROR"), err)
 			os.Exit(1)
 		}
-		if err := exec.Run(args); err != nil {
+		if err := isolation.RunShim(args); err != nil {
 			fmt.Fprintf(os.Stderr, "%s safebox: exec failed: %v\n", ui.StyleDenied.Render("ERROR"), err)
 			os.Exit(1)
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	osexec "os/exec"
+	"runtime"
 	"strings"
 
 	"safebox/internal/isolation"
@@ -75,6 +76,7 @@ func main() {
 		}
 
 	case "__child__":
+		runtime.LockOSThread()
 		if len(args) == 0 {
 			fmt.Fprintf(os.Stderr, "%s safebox __child__: missing wrapped command\n", ui.StyleDenied.Render("ERROR"))
 			os.Exit(1)

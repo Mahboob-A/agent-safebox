@@ -94,6 +94,53 @@ func TestCLIRunExitCodePropagation(t *testing.T) {
 	}
 }
 
+func TestCLIRunPIDIsolation(t *testing.T) {
+	out, err := runCLI("run", "--", "sh", "-c", "echo $PPID")
+	if err != nil {
+		t.Fatalf("run failed: %v, output: %s", err, string(out))
+	}
+	if strings.TrimSpace(string(out)) != "1" {
+		t.Errorf("expected wrapped process PPID == 1, got %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestCLIRunSignalForwarding(t *testing.T) {
+	cmd := exec.Command(testBinaryPath, "run", "--", "sleep", "10")
+	cmd.Env = append(os.Environ(), "LANG=C")
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start safebox run: %v", err)
+	}
+
+	time.Sleep(150 * time.Millisecond)
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("failed to send SIGTERM to safebox process: %v", err)
+	}
+
+	err := cmd.Wait()
+	if err == nil {
+		t.Fatal("expected non-zero exit on signal termination, got nil error")
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		ws, ok := exitErr.Sys().(syscall.WaitStatus)
+		if ok {
+			if !ws.Signaled() && ws.ExitStatus() != 143 {
+				t.Fatalf("expected signaled termination or exit code 143, got status %v", ws)
+			}
+		}
+	}
+}
+
+func TestCLIRunZombieReaping(t *testing.T) {
+	out, err := runCLI("run", "--", "sh", "-c", "(sleep 0.05 &); sleep 0.2")
+	if err != nil {
+		t.Fatalf("run failed: %v, output: %s", err, string(out))
+	}
+}
+
 func TestCLIUnknownSubcommand(t *testing.T) {
 	out, err := runCLI("nosuchcommand")
 	if err == nil {

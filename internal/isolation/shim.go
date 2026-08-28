@@ -6,6 +6,7 @@ import (
 	"os"
 	osexec "os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 )
 
@@ -13,6 +14,8 @@ import (
 // inside the PID namespace while keeping the current process as PID 1 to
 // forward signals and reap reparented orphan processes.
 func RunShim(args []string) error {
+	runtime.LockOSThread()
+
 	if len(args) == 0 {
 		return errors.New("safebox: no command specified")
 	}
@@ -62,6 +65,9 @@ func RunShim(args []string) error {
 			os.Exit(status.ExitStatus())
 		}
 		if waitErr != nil {
+			if errors.Is(waitErr, syscall.EINTR) {
+				continue
+			}
 			if errors.Is(waitErr, syscall.ECHILD) {
 				break
 			}

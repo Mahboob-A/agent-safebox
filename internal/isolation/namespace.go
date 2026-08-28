@@ -24,14 +24,21 @@ func DefaultSysProcAttr() *syscall.SysProcAttr {
 }
 
 // ReexecChild re-executes the current binary (/proc/self/exe) with the hidden
-// "__child__" subcommand inside fresh unprivileged user, mount, and network namespaces.
-func ReexecChild(cmdArgs []string) error {
+// "__child__" subcommand, forwarding allow-path flags and command arguments
+// inside fresh unprivileged user, mount, network, IPC, UTS, and PID namespaces.
+func ReexecChild(allowPaths []string, cmdArgs []string) error {
 	exePath, err := os.Executable()
 	if err != nil {
 		exePath = "/proc/self/exe"
 	}
 
-	childArgs := append([]string{"__child__"}, cmdArgs...)
+	var childArgs []string
+	childArgs = append(childArgs, "__child__")
+	for _, p := range allowPaths {
+		childArgs = append(childArgs, "--allow-path="+p)
+	}
+	childArgs = append(childArgs, cmdArgs...)
+
 	cmd := exec.Command(exePath, childArgs...)
 	cmd.SysProcAttr = DefaultSysProcAttr()
 	cmd.Stdin = os.Stdin

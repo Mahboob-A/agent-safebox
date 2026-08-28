@@ -35,14 +35,41 @@ func hasYesFlag(args []string) bool {
 	return false
 }
 
+func parseAllowPaths(args []string) (allowPaths []string, cmdArgs []string) {
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+		if arg == "--" {
+			cmdArgs = append(cmdArgs, args[i+1:]...)
+			break
+		}
+		if strings.HasPrefix(arg, "--allow-path=") {
+			pathVal := strings.TrimPrefix(arg, "--allow-path=")
+			if pathVal != "" {
+				allowPaths = append(allowPaths, pathVal)
+			}
+			i++
+			continue
+		}
+		if arg == "--allow-path" && i+1 < len(args) {
+			allowPaths = append(allowPaths, args[i+1])
+			i += 2
+			continue
+		}
+		cmdArgs = append(cmdArgs, args[i:]...)
+		break
+	}
+	return allowPaths, cmdArgs
+}
+
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage: safebox <command> [arguments]\n\n")
 	fmt.Fprintf(os.Stderr, "Commands:\n")
-	fmt.Fprintf(os.Stderr, "  run [--] <cmd...>             Run a command inside the sandbox\n")
-	fmt.Fprintf(os.Stderr, "  diff [--shadow=<dir>]         Show modified, added, and deleted files\n")
-	fmt.Fprintf(os.Stderr, "  revert [--yes|-y]             Discard all working tree changes\n")
-	fmt.Fprintf(os.Stderr, "  apply --shadow=<dir> [--yes]  Apply shadow changes to working directory\n")
-	fmt.Fprintf(os.Stderr, "  help                          Show help documentation\n")
+	fmt.Fprintf(os.Stderr, "  run [--allow-path=<dir> ...] [--] <cmd...>  Run a command inside the sandbox\n")
+	fmt.Fprintf(os.Stderr, "  diff [--shadow=<dir>]                       Show modified, added, and deleted files\n")
+	fmt.Fprintf(os.Stderr, "  revert [--yes|-y]                           Discard all working tree changes\n")
+	fmt.Fprintf(os.Stderr, "  apply --shadow=<dir> [--yes]                Apply shadow changes to working directory\n")
+	fmt.Fprintf(os.Stderr, "  help                                        Show help documentation\n")
 }
 
 func main() {
@@ -57,16 +84,13 @@ func main() {
 
 	switch subcommand {
 	case "run":
-		// Strip leading "--" if provided
-		if len(args) > 0 && args[0] == "--" {
-			args = args[1:]
-		}
-		if len(args) == 0 {
+		allowPaths, cmdArgs := parseAllowPaths(args)
+		if len(cmdArgs) == 0 {
 			fmt.Fprintf(os.Stderr, "%s safebox run: no command specified\n\n", ui.StyleDenied.Render("ERROR"))
 			printUsage()
 			os.Exit(1)
 		}
-		if err := isolation.ReexecChild(args); err != nil {
+		if err := isolation.ReexecChild(allowPaths, cmdArgs); err != nil {
 			var exitErr *osexec.ExitError
 			if errors.As(err, &exitErr) {
 				os.Exit(exitErr.ExitCode())
@@ -77,15 +101,16 @@ func main() {
 
 	case "__child__":
 		runtime.LockOSThread()
-		if len(args) == 0 {
+		allowPaths, cmdArgs := parseAllowPaths(args)
+		if len(cmdArgs) == 0 {
 			fmt.Fprintf(os.Stderr, "%s safebox __child__: missing wrapped command\n", ui.StyleDenied.Render("ERROR"))
 			os.Exit(1)
 		}
-		if err := isolation.ApplyLandlock(); err != nil {
+		if err := isolation.ApplyLandlock(allowPaths...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n", ui.StyleDenied.Render("ERROR"), err)
 			os.Exit(1)
 		}
-		if err := isolation.RunShim(args); err != nil {
+		if err := isolation.RunShim(cmdArgs); err != nil {
 			fmt.Fprintf(os.Stderr, "%s safebox: exec failed: %v\n", ui.StyleDenied.Render("ERROR"), err)
 			os.Exit(1)
 		}

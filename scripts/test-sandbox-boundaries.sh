@@ -98,5 +98,35 @@ else
     echo "OK: Read of /etc/passwd allowed inside sandbox."
 fi
 
+echo "=== Boundary Check 7: Real CLI Agent execution with --allow-path, trace, and remediation ==="
+if [[ -x "/root/.local/bin/agy" ]]; then
+    set +e
+    OUTPUT=$("$BINARY" run -- /root/.local/bin/agy --version 2>&1)
+    EXIT_CODE=$?
+    set -e
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        echo "FAIL: /root/.local/bin/agy ran without --allow-path! Landlock policy breached!" >&2
+        exit 1
+    fi
+    if [[ "$OUTPUT" != *"--allow-path=/root/.local/bin"* ]]; then
+        echo "FAIL: Remediation hint missing for /root/.local/bin/agy denial." >&2
+        exit 1
+    fi
+    echo "OK: Real tool denial and remediation hint verified."
+
+    OUTPUT=$("$BINARY" run --allow-path=/root/.local/bin -- /root/.local/bin/agy --version 2>&1)
+    if [[ "$OUTPUT" != *"1.1.22"* ]]; then
+        echo "FAIL: Real agy execution with --allow-path failed." >&2
+        exit 1
+    fi
+    if [[ "$OUTPUT" != *"[safebox]"* ]]; then
+        echo "FAIL: Execution trace missing from real agy execution." >&2
+        exit 1
+    fi
+    echo "OK: Real tool execution with --allow-path and trace verified."
+else
+    echo "SKIP: /root/.local/bin/agy not present on host."
+fi
+
 echo "All sandbox boundary checks PASSED."
 exit 0

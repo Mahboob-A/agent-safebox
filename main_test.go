@@ -1120,3 +1120,29 @@ func TestCLISessionAutomaticPrune(t *testing.T) {
 		t.Errorf("expected stale session directory %s to be pruned by safebox run", oldSessDir)
 	}
 }
+
+func TestCLIBenchmarkStartupLatency(t *testing.T) {
+	if os.Getenv("SKIP_LATENCY_TEST") != "" {
+		t.Skip("latency test skipped via env")
+	}
+
+	const iterations = 20
+	var totalDuration time.Duration
+	for i := 0; i < iterations; i++ {
+		start := time.Now()
+		cmd := exec.Command(testBinaryPath, "run", "--quiet", "--", "true")
+		cmd.Env = append(os.Environ(), "LANG=C")
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("iteration %d failed: %v", i, err)
+		}
+		totalDuration += time.Since(start)
+	}
+
+	avgLatency := totalDuration / iterations
+	t.Logf("Average startup latency across %d runs: %v", iterations, avgLatency)
+
+	// NFR3 sets 50ms startup overhead target
+	if avgLatency > 50*time.Millisecond {
+		t.Errorf("average startup latency %v exceeds 50ms budget (NFR3)", avgLatency)
+	}
+}

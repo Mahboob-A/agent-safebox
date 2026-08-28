@@ -1,21 +1,34 @@
 # Safebox
 
-Safebox is an unprivileged, high-performance Linux sandbox and change-management tool designed to safely run untrusted developer scripts, third-party CLI tools, and AI agent workloads.
+Safebox is an unprivileged, high-performance Linux sandbox and change-management tool designed to safely run untrusted developer scripts, third-party CLI tools, and autonomous AI agent workloads.
 
 ---
 
 ## Key Features
 
 - **Unprivileged Operation**: Requires zero root privileges (`sudo`) and zero setuid binaries. Operates entirely in user space.
-- **Microsecond Latency**: Adds negligible startup overhead (well under 250ms latency budget).
+- **Microsecond Latency**: Adds negligible startup overhead (typically under 40ms, well within the 50ms NFR3 budget).
 - **Multi-Dimensional Kernel Isolation**:
   - **User & Mount Namespaces (`CLONE_NEWUSER`, `CLONE_NEWNS`)**: Remaps UID/GID so inside the sandbox you appear as root (`uid=0`), while on the host you remain an unprivileged user.
-  - **Network Isolation (`CLONE_NEWNET`)**: Places execution in an isolated network namespace with unconfigured loopback, blocking external traffic and data exfiltration.
-  - **Landlock LSM Sandboxing**: Enforces strict kernel-level access controls, restricting filesystem write permissions strictly to the current working directory.
-  - **PID, IPC, & UTS Namespaces**: Isolates processes, inter-process communication, and hostname.
-- **Change Visibility & Revert**:
-  - **Git Mode**: Formats working tree modifications with colored Lipgloss tokens and provides one-command instant rollback (`safebox revert`).
-  - **Shadow Mode (OverlayFS)**: Provides unprivileged copy-on-write filesystem redirection for non-git workspaces, supporting change inspection (`safebox diff --shadow=<dir>`) and host synchronization (`safebox apply --shadow=<dir>`).
+  - **Network Isolation (`CLONE_NEWNET`)**: Places execution in an isolated network namespace with an unconfigured loopback, blocking all outbound network access and data exfiltration.
+  - **PID Namespace with Init Shim (`CLONE_NEWPID`)**: Safebox acts as a minimal PID 1 supervisor inside the container namespace, forwarding signals (such as SIGINT / Ctrl+C and SIGTERM) to the wrapped process (PID 2) and reaping reparented zombie children with a `wait4(-1, ...)` loop.
+  - **IPC & UTS Namespaces (`CLONE_NEWIPC`, `CLONE_NEWUTS`)**: Isolates inter-process communication resources, message queues, shared memory, and hostname.
+- **Landlock LSM Filesystem Containment**:
+  - **Deny-by-Default Security Policy**: Restricts filesystem access at the kernel level.
+  - **Deliberately Narrow Default Allow List**: Read-write access to the working directory; read-only access to `/usr`, `/usr/local`, `/lib`, `/lib64`, and `/etc/ld.so.conf.d`; and strictly required configuration files from `/etc` (`/etc/passwd`, `/etc/group`, `/etc/localtime`, `/etc/ld.so.cache`, `/etc/ld.so.conf`, `/etc/nsswitch.conf`).
+  - **Protected Paths**: Sensitive paths such as `/etc/shadow`, `/etc/ssh/*`, and user home directories (`~/.ssh`, `~/.aws`, `~/.gnupg`) are strictly denied by default.
+  - **Repeatable `--allow-path=<dir>` Flag**: Explicitly grants read and execute access to specific directories outside the default allow list (for example, `/root/.local/bin` for custom agent tools).
+  - **Actionable Remediation Hints**: Emits clear copy-pasteable hints on denial (for example, `-> hint: rerun with --allow-path=/path/to/dir`).
+- **In-Namespace OverlayFS & Automatic Session Tracking**:
+  - **Zero-Footprint Host Protection**: Sandboxed writes are directed to an unprivileged OverlayFS upper layer mounted inside the private mount namespace. The host filesystem remains pristine until explicitly applied.
+  - **Automatic Stateless Session Discovery**: `safebox diff`, `safebox apply`, and `safebox revert` automatically resolve the latest session for the current working directory without requiring manual `--shadow` arguments.
+  - **Strict Directory Isolation**: Prevents destructive operations (`apply` and `revert`) from acting on parent sessions when invoked from subdirectories.
+  - **Automatic Session Pruning**: Abandoned sessions older than 24 hours are automatically purged on new runs to prevent disk bloat.
+- **Default-On Execution Tracing**:
+  - Emits colored, timestamped setup and teardown step badges (`[safebox] <step> <status> <elapsed>`) to `stderr`.
+  - Stdout remains completely clean for pipes, redirects, and automated tools.
+  - Suppressed with zero overhead using `--quiet` (`-q`).
+- **Fail-Safe over Fail-Open**: Refuses to run if Landlock or required unprivileged namespace syscalls are unsupported on the host kernel.
 
 ---
 
@@ -24,18 +37,18 @@ Safebox is an unprivileged, high-performance Linux sandbox and change-management
 ### Supported Environments
 - **Operating System**: Ubuntu Linux 22.04 LTS, 24.04 LTS, or newer.
 - **Kernel Requirements**:
-  - **Linux 5.13+**: Required for Landlock LSM ABI v1 (default in Ubuntu 22.04+).
-  - **Linux 5.11+**: Required for unprivileged OverlayFS mounts.
+  - **Linux 5.13+**: Required for Landlock LSM ABI v1+ (Ubuntu 22.04+ default kernels are 5.15+, 6.5+, or 6.8+).
+  - **Linux 5.11+**: Required for unprivileged OverlayFS mounts inside user namespaces.
 - **Architecture**: x86_64, aarch64 / arm64.
 
 ### Checking Kernel Capabilities
-Run the following commands in your Ubuntu terminal:
+Verify kernel capabilities on your Ubuntu system:
 
 ```bash
 # 1. Verify kernel version (must be >= 5.13)
 uname -r
 
-# 2. Verify Landlock LSM is enabled in kernel
+# 2. Verify Landlock LSM is enabled
 cat /sys/kernel/security/lsm
 # Expected output contains: landlock
 
@@ -65,7 +78,7 @@ echo "kernel.apparmor_restrict_unprivileged_userns = 0" | sudo tee /etc/sysctl.d
   ```
 
 ### Build from Source
-Safebox has zero C-library dependencies and compiles to a single standalone binary:
+Safebox compiles into a single standalone static binary with zero external runtime dependencies:
 
 ```bash
 # Clone the repository
@@ -80,7 +93,7 @@ go build -o safebox .
 ```
 
 ### System-Wide Installation
-To make `safebox` globally accessible across your system:
+To install `safebox` globally:
 
 ```bash
 sudo install -m 0755 safebox /usr/local/bin/safebox
@@ -100,176 +113,77 @@ safebox <command> [arguments]
 
 | Command | Arguments / Flags | Description |
 | :--- | :--- | :--- |
-| `run` | `[--] <cmd...>` | Execute command inside namespace and Landlock sandbox |
-| `diff` | `[--shadow=<dir>]` | Display colored status of modified, added, and deleted files |
-| `revert` | `[--yes \| -y \| --yes=true]` | Discard all working tree changes and restore clean state |
-| `apply` | `--shadow=<dir> [--yes \| -y]` | Synchronize shadow OverlayFS changes to working directory |
+| `run` | `[--quiet \| -q] [--allow-path=<dir> ...] [--] <cmd...>` | Execute a command inside unprivileged namespaces with OverlayFS and Landlock containment |
+| `diff` | `[--quiet \| -q] [--shadow=<dir>]` | Display colored status (`+ [ADDED]`, `~ [MODIFIED]`, `- [DELETED]`) for active session or git workspace |
+| `revert` | `[--quiet \| -q] [--yes \| -y]` | Discard active OverlayFS session changes or restore git working tree |
+| `apply` | `[--quiet \| -q] [--shadow=<dir>] [--yes \| -y]` | Apply shadow OverlayFS modifications back to the host working directory |
 | `help` | `-h`, `--help` | Display CLI usage documentation |
 
 ---
 
-### Command Breakdown
+## Common Use Cases
 
-#### 1. `safebox run [--] <cmd...>`
-Executes any Linux binary or script in an unprivileged, Landlock-restricted sandbox.
+### 1. Running Untrusted Scripts Safely
+Execute an untrusted build script inside the sandbox. Network calls and writes outside the working directory are blocked automatically:
 
-- **Double-Dash (`--`)**: Optional argument separator to ensure flags intended for the target command are not intercepted by safebox.
-- **Filesystem Permissions**:
-  - Current Working Directory (`CWD`): Read and write allowed.
-  - System Paths (`/usr`, `/lib`, `/bin`, etc.): Read-only allowed.
-  - Sensitive Paths (`/root`, `/home/other`, `/etc` writes): Denied by Landlock.
-- **Network Access**: Denied (outbound TCP/UDP drops).
-- **Exit Code Propagation**: Propagates the exact integer exit code of the target program ($0, 1, 2, 127$, etc.).
-
-**Examples**:
 ```bash
-# Run a Python script inside sandbox
-safebox run python3 test_script.py
-
-# Run a shell command with arguments using --
-safebox run -- sh -c "echo 'Hello Sandbox' > test.txt"
-
-# Run a build tool
-safebox run make build
+safebox run -- python3 generate_assets.py
 ```
 
----
+### 2. Autonomous AI Coding Agents with External Tool Paths
+Run an autonomous coding agent (such as `agy`) with tool paths explicitly permitted via `--allow-path`:
 
-#### 2. `safebox diff [--shadow=<dir>]`
-Inspects and formats changes in human-readable colored output.
-
-- **Git Mode (default)**: When executed in a git repository, inspects unstaged and staged modifications relative to `HEAD`.
-- **Shadow Mode (`--shadow=<upperdir>`)**: When `--shadow=<dir>` is specified, compares the OverlayFS upper layer with the host working directory.
-- **Output Status Tokens**:
-  - `+ [ADDED] <path>` (Green): New untracked or newly created file.
-  - `~ [MODIFIED] <path>` (Yellow): Existing file whose contents or mode changed.
-  - `- [DELETED] <path>` (Red): Deleted file (including OverlayFS whiteouts).
-  - `? [UNTRACKED] <path>` (Blue): Untracked files in git mode.
-
-**Examples**:
 ```bash
-# Inspect changes in a git repository
+# Execution without --allow-path produces an actionable hint:
+safebox run -- /root/.local/bin/agy --version
+# ERROR safebox: exec failed: permission denied
+#   -> hint: rerun with --allow-path=/root/.local/bin
+
+# Grant read/exec access to the tool path:
+safebox run --allow-path=/root/.local/bin -- /root/.local/bin/agy "implement user login"
+```
+
+### 3. Reviewing & Applying AI Agent Mutations
+Inspect every file created or modified by an agent session before committing changes to the host:
+
+```bash
+# 1. Run agent task in sandbox (host remains untouched)
+safebox run -- npm run build
+
+# 2. Inspect session diff
 safebox diff
 
-# Inspect changes in a non-git directory from a shadow session
-safebox diff --shadow=/tmp/safebox-session-123/upper
-```
-
----
-
-#### 3. `safebox revert [--yes|-y]`
-Discards uncommitted changes in a git repository, returning the working tree to pristine state.
-
-- **Interactive Confirmation**: Prompts the user before discarding:
-  `[PROMPT] Discard all working tree changes? [y/N]: `
-- **Force Flags (`--yes`, `-y`, `--yes=true`)**: Skips the confirmation prompt for automated scripts and CI pipelines.
-
-**Examples**:
-```bash
-# Revert with interactive confirmation
-safebox revert
-
-# Revert immediately without prompt
-safebox revert --yes
-safebox revert -y
-```
-
----
-
-#### 4. `safebox apply --shadow=<dir> [--yes|-y]`
-Applies modifications captured in an OverlayFS shadow directory to the current working directory.
-
-- **Flag `--shadow=<dir>` (Required)**: Path to the OverlayFS `upperdir` containing session changes.
-- **Interactive Confirmation**: Prompts before applying:
-  `[PROMPT] Apply shadow changes to working directory? [y/N]: `
-- **Force Flags (`--yes`, `-y`)**: Bypasses the prompt to apply changes immediately.
-- **Behavior**:
-  - Copies added and modified files to the host directory (preserving file modes).
-  - Creates necessary parent directories.
-  - Removes files from the host directory that were deleted (marked with whiteout devices) in the shadow session.
-
-**Examples**:
-```bash
-# Apply shadow modifications with confirmation
-safebox apply --shadow=/tmp/session-42/upper
-
-# Apply shadow modifications non-interactively
-safebox apply --shadow=/tmp/session-42/upper --yes
-```
-
----
-
-## Step-by-Step Usage Tutorials
-
-### Tutorial 1: Safe Package Installation & Inspection
-When testing an untrusted package or script:
-
-```bash
-cd /path/to/my-project
-
-# 1. Run installation inside safebox
-safebox run -- npm install untrusted-package
-
-# 2. Inspect what files were modified or created
-safebox diff
-
-# 3. If unwanted modifications are detected, rollback immediately
-safebox revert --yes
-```
-
----
-
-### Tutorial 2: AI Coding Agent Sandbox & Change Review
-When an automated coding agent performs file edits and builds:
-
-```bash
-# 1. Agent runs tests and code generators
-safebox run -- pytest tests/
-
-# 2. Developer inspects the exact diff
-safebox diff
-
-# 3. If approved, keep changes; if rejected, rollback
-safebox revert -y
-```
-
----
-
-### Tutorial 3: Non-Git OverlayFS Shadow Workspace
-For non-git workspaces or zero-risk ephemeral execution:
-
-```bash
-# 1. Create session directories
-SESSION_DIR=$(mktemp -d /tmp/safebox-session.XXXXXX)
-mkdir -p "$SESSION_DIR/upper" "$SESSION_DIR/work" "$SESSION_DIR/target"
-
-# 2. Inside overlay session, make modifications
-# (all writes are captured in $SESSION_DIR/upper without touching lowerdir)
-
-# 3. Inspect shadow changes from host
-safebox diff --shadow="$SESSION_DIR/upper"
-
-# 4. Apply changes to host or discard session
-safebox apply --shadow="$SESSION_DIR/upper" --yes
+# 3. Apply changes if verified, or discard cleanly
+safebox apply --yes
 # Or discard:
-rm -rf "$SESSION_DIR"
+safebox revert --yes
+```
+
+### 4. Headless CI/CD & Automated Pipelines
+Use `--quiet` (`-q`) to suppress setup traces and cleanly consume command stdout:
+
+```bash
+# Output contains only the wrapped command's stdout
+VERSION=$(safebox run --quiet --allow-path=/root/.local/bin -- /root/.local/bin/agy --version)
+echo "Agent version: $VERSION"
 ```
 
 ---
 
-## Troubleshooting & Diagnostics
+## Running Automated Tests
 
-- **`permission denied` outside working directory**:
-  - *Cause*: Command attempted to modify files outside `CWD` (e.g. `/etc`, `/usr`, `/root`).
-  - *Behavior*: Intended security confinement enforced by Landlock LSM.
-- **`network is unreachable`**:
-  - *Cause*: Command attempted outbound network communication.
-  - *Behavior*: Intended network containment enforced by `CLONE_NEWNET`. Pre-download required packages before sandboxed execution.
-- **`shadow directory ... does not exist`**:
-  - *Cause*: The path passed to `--shadow=<dir>` was not found on disk. Verify that the directory path exists.
+Run the complete test suite and boundary verification scripts:
+
+```bash
+# 1. Run all unit and integration tests
+go test -v ./...
+
+# 2. Run security boundary check suite
+bash scripts/test-sandbox-boundaries.sh
+```
 
 ---
 
 ## License
 
-This project is licensed under the Apache License 2.0.
+This project is open source and available under the MIT License.

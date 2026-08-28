@@ -70,5 +70,28 @@ else
     echo "OK: Write to /etc correctly denied inside sandbox (exit $EXIT_CODE)."
 fi
 
+echo "=== Boundary Check 6: Partial /etc access (shadow denied, passwd allowed) ==="
+set +e
+OUTPUT_SHADOW=$("$BINARY" run -- cat /etc/shadow 2>&1)
+EXIT_SHADOW=$?
+set -e
+if [[ $EXIT_SHADOW -eq 0 ]]; then
+    echo "FAIL: Read of /etc/shadow succeeded inside sandbox. Landlock sensitive file policy breached!" >&2
+    exit 1
+else
+    echo "OK: Read of /etc/shadow correctly denied inside sandbox (exit $EXIT_SHADOW)."
+fi
+
+set +e
+OUTPUT_PASSWD=$("$BINARY" run -- cat /etc/passwd 2>&1)
+EXIT_PASSWD=$?
+set -e
+if [[ $EXIT_PASSWD -ne 0 ]]; then
+    echo "FAIL: Read of /etc/passwd failed inside sandbox (exit $EXIT_PASSWD)." >&2
+    exit 1
+else
+    echo "OK: Read of /etc/passwd allowed inside sandbox."
+fi
+
 echo "All sandbox boundary checks PASSED."
 exit 0

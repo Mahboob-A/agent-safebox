@@ -73,8 +73,70 @@ func TestCLIRunLandlockDenial(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected ls /root to fail, got success: %s", string(out))
 	}
-	if !strings.Contains(string(out), "Permission denied") {
+	if !strings.Contains(string(out), "Permission denied") && !strings.Contains(string(out), "permission denied") {
 		t.Errorf("expected 'Permission denied' in output, got: %s", string(out))
+	}
+}
+
+func TestCLIRunLandlockEtcShadowDenial(t *testing.T) {
+	out, err := runCLI("run", "--", "cat", "/etc/shadow")
+	if err == nil {
+		t.Fatalf("expected cat /etc/shadow to fail, got success: %s", string(out))
+	}
+	if !strings.Contains(string(out), "Permission denied") && !strings.Contains(string(out), "permission denied") {
+		t.Errorf("expected 'Permission denied' in output, got: %s", string(out))
+	}
+}
+
+func TestCLIRunLandlockEtcPasswdAllowed(t *testing.T) {
+	out, err := runCLI("run", "--", "cat", "/etc/passwd")
+	if err != nil {
+		t.Fatalf("expected cat /etc/passwd to succeed, got: %v (output: %s)", err, string(out))
+	}
+	if !strings.Contains(string(out), "root:") {
+		t.Errorf("expected /etc/passwd content to contain 'root:', got: %s", string(out))
+	}
+}
+
+func TestCLIRunAllowPathFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "custom.sh")
+	scriptContent := "#!/bin/sh\necho \"CUSTOM_ALLOW_PATH_SUCCESS\"\n"
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		t.Fatalf("failed to create custom test script: %v", err)
+	}
+
+	// Execution without --allow-path should fail
+	out, err := runCLI("run", "--", scriptPath)
+	if err == nil {
+		t.Fatalf("expected execution without --allow-path to fail, got success: %s", string(out))
+	}
+
+	// Execution with --allow-path should succeed
+	out, err = runCLI("run", "--allow-path="+tmpDir, "--", scriptPath)
+	if err != nil {
+		t.Fatalf("expected execution with --allow-path to succeed, got: %v (output: %s)", err, string(out))
+	}
+	if !strings.Contains(string(out), "CUSTOM_ALLOW_PATH_SUCCESS") {
+		t.Errorf("expected output to contain 'CUSTOM_ALLOW_PATH_SUCCESS', got: %s", string(out))
+	}
+}
+
+func TestCLIActionableHintOnDenial(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "denied.sh")
+	scriptContent := "#!/bin/sh\necho \"denied\"\n"
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		t.Fatalf("failed to create script: %v", err)
+	}
+
+	out, err := runCLI("run", "--", scriptPath)
+	if err == nil {
+		t.Fatalf("expected denial error, got success: %s", string(out))
+	}
+	expectedHint := "hint: rerun with --allow-path=" + tmpDir
+	if !strings.Contains(string(out), expectedHint) {
+		t.Errorf("expected output to contain hint %q, got: %s", expectedHint, string(out))
 	}
 }
 

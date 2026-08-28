@@ -5,16 +5,52 @@ import (
 	"fmt"
 	"os"
 	osexec "os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"safebox/internal/isolation"
 	"safebox/internal/revert"
 	"safebox/internal/ui"
 )
 
+func hintFor(err error, cmdArgs []string) string {
+	if err == nil {
+		return ""
+	}
+	errStr := err.Error()
+	if strings.Contains(strings.ToLower(errStr), "permission denied") || errors.Is(err, syscall.EACCES) {
+		if len(cmdArgs) > 0 {
+			bin := cmdArgs[0]
+			if strings.Contains(bin, "/") {
+				dir := filepath.Dir(bin)
+				return fmt.Sprintf("rerun with --allow-path=%s", dir)
+			}
+			return "rerun with --allow-path=<dir>"
+		}
+	}
+	return ""
+}
+
+func hintForSubcommand(subcommand string, err error) string {
+	if err == nil {
+		return ""
+	}
+	if subcommand == "apply" && strings.Contains(err.Error(), "--shadow=") {
+		return "pass --shadow=<dir> to specify the shadow directory"
+	}
+	if errors.Is(err, revert.ErrNotGitRepo) {
+		return "run inside a git repository or use --shadow=<dir> for non-git trees"
+	}
+	return ""
+}
+
 func printSubcommandError(subcommand string, err error) {
 	fmt.Fprintf(os.Stderr, "%s safebox %s: %v\n", ui.StyleDenied.Render("ERROR"), subcommand, err)
+	if hint := hintForSubcommand(subcommand, err); hint != "" {
+		fmt.Fprintf(os.Stderr, "  -> hint: %s\n", hint)
+	}
 }
 
 func parseShadowFlag(args []string) string {
@@ -96,6 +132,9 @@ func main() {
 				os.Exit(exitErr.ExitCode())
 			}
 			fmt.Fprintf(os.Stderr, "%s %v\n", ui.StyleDenied.Render("ERROR"), err)
+			if hint := hintFor(err, cmdArgs); hint != "" {
+				fmt.Fprintf(os.Stderr, "  -> hint: %s\n", hint)
+			}
 			os.Exit(1)
 		}
 
@@ -108,10 +147,16 @@ func main() {
 		}
 		if err := isolation.ApplyLandlock(allowPaths...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n", ui.StyleDenied.Render("ERROR"), err)
+			if hint := hintFor(err, cmdArgs); hint != "" {
+				fmt.Fprintf(os.Stderr, "  -> hint: %s\n", hint)
+			}
 			os.Exit(1)
 		}
 		if err := isolation.RunShim(cmdArgs); err != nil {
 			fmt.Fprintf(os.Stderr, "%s safebox: exec failed: %v\n", ui.StyleDenied.Render("ERROR"), err)
+			if hint := hintFor(err, cmdArgs); hint != "" {
+				fmt.Fprintf(os.Stderr, "  -> hint: %s\n", hint)
+			}
 			os.Exit(1)
 		}
 

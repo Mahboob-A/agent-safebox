@@ -37,11 +37,14 @@ func hintForSubcommand(subcommand string, err error) string {
 	if err == nil {
 		return ""
 	}
+	if errors.Is(err, revert.ErrNoSessionFound) {
+		return "run safebox run first or pass --shadow=<dir>"
+	}
 	if subcommand == "apply" && strings.Contains(err.Error(), "--shadow=") {
-		return "pass --shadow=<dir> to specify the shadow directory"
+		return "pass --shadow=<dir> or run safebox run to create a session"
 	}
 	if errors.Is(err, revert.ErrNotGitRepo) {
-		return "run inside a git repository or use --shadow=<dir> for non-git trees"
+		return "run inside a git repository or use safebox run to create an overlay session"
 	}
 	return ""
 }
@@ -71,14 +74,14 @@ func hasYesFlag(args []string) bool {
 	return false
 }
 
-func parseAllowPaths(args []string) (allowPaths []string, cmdArgs []string, err error) {
+func parseAllowPathsAndFlags(args []string) (allowPaths []string, sessionDir string, cmdArgs []string, err error) {
 	i := 0
 	for i < len(args) {
 		arg := args[i]
 		if arg == "--" {
 			for _, rest := range args[i+1:] {
 				if strings.HasPrefix(rest, "--allow-path=") || rest == "--allow-path" {
-					return nil, nil, errors.New("--allow-path must precede the -- delimiter; current invocation places it inside the wrapped command arguments")
+					return nil, "", nil, errors.New("--allow-path must precede the -- delimiter; current invocation places it inside the wrapped command arguments")
 				}
 			}
 			cmdArgs = append(cmdArgs, args[i+1:]...)
@@ -97,10 +100,15 @@ func parseAllowPaths(args []string) (allowPaths []string, cmdArgs []string, err 
 			i += 2
 			continue
 		}
+		if strings.HasPrefix(arg, "--session-dir=") {
+			sessionDir = strings.TrimPrefix(arg, "--session-dir=")
+			i++
+			continue
+		}
 		cmdArgs = append(cmdArgs, args[i:]...)
 		break
 	}
-	return allowPaths, cmdArgs, nil
+	return allowPaths, sessionDir, cmdArgs, nil
 }
 
 func printUsage() {
@@ -108,8 +116,8 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "Commands:\n")
 	fmt.Fprintf(os.Stderr, "  run [--allow-path=<dir> ...] [--] <cmd...>  Run a command inside the sandbox\n")
 	fmt.Fprintf(os.Stderr, "  diff [--shadow=<dir>]                       Show modified, added, and deleted files\n")
-	fmt.Fprintf(os.Stderr, "  revert [--yes|-y]                           Discard all working tree changes\n")
-	fmt.Fprintf(os.Stderr, "  apply --shadow=<dir> [--yes]                Apply shadow changes to working directory\n")
+	fmt.Fprintf(os.Stderr, "  revert [--yes|-y]                           Discard session or working tree changes\n")
+	fmt.Fprintf(os.Stderr, "  apply [--shadow=<dir>] [--yes]              Apply shadow changes to working directory\n")
 	fmt.Fprintf(os.Stderr, "  help                                        Show help documentation\n")
 }
 
@@ -125,7 +133,7 @@ func main() {
 
 	switch subcommand {
 	case "run":
-		allowPaths, cmdArgs, err := parseAllowPaths(args)
+		allowPaths, _, cmdArgs, err := parseAllowPathsAndFlags(args)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s safebox run: %v\n\n", ui.StyleDenied.Render("ERROR"), err)
 			printUsage()
@@ -136,7 +144,20 @@ func main() {
 			printUsage()
 			os.Exit(1)
 		}
-		if err := isolation.ReexecChild(allowPaths, cmdArgs); err != nil {
+
+		cwd, err := os.Getwd()
+		if err != nil {
+			printSubcommandError("run", fmt.Errorf("failed to get working directory: %w", err))
+			os.Exit(1)
+		}
+
+		sess, err := revert.CreateSession(cwd)
+		if err != nil {
+			printSubcommandError("run", fmt.Errorf("failed to create overlay session: %w", err))
+			os.Exit(1)
+		}
+
+		if err := isolation.ReexecChild(allowPaths, sess.BaseDir, cmdArgs); err != nil {
 			var exitErr *osexec.ExitError
 			if errors.As(err, &exitErr) {
 				os.Exit(exitErr.ExitCode())
@@ -150,7 +171,7 @@ func main() {
 
 	case "__child__":
 		runtime.LockOSThread()
-		allowPaths, cmdArgs, err := parseAllowPaths(args)
+		allowPaths, sessionDir, cmdArgs, err := parseAllowPathsAndFlags(args)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s safebox __child__: %v\n", ui.StyleDenied.Render("ERROR"), err)
 			os.Exit(1)
@@ -159,6 +180,27 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%s safebox __child__: missing wrapped command\n", ui.StyleDenied.Render("ERROR"))
 			os.Exit(1)
 		}
+
+		if sessionDir != "" {
+			upperDir := filepath.Join(sessionDir, "upper")
+			workDir := filepath.Join(sessionDir, "work")
+			mergedDir := filepath.Join(sessionDir, "merged")
+			lowerDir, err := os.Getwd()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s safebox __child__: cannot get working directory: %v\n", ui.StyleDenied.Render("ERROR"), err)
+				os.Exit(1)
+			}
+			if err := isolation.MountSessionOverlay(lowerDir, upperDir, workDir, mergedDir); err != nil {
+				fmt.Fprintf(os.Stderr, "%s safebox __child__: %v\n", ui.StyleDenied.Render("ERROR"), err)
+				os.Exit(1)
+			}
+			defer isolation.UnmountOverlay(mergedDir)
+			if err := os.Chdir(mergedDir); err != nil {
+				fmt.Fprintf(os.Stderr, "%s safebox __child__: cannot change directory to overlay: %v\n", ui.StyleDenied.Render("ERROR"), err)
+				os.Exit(1)
+			}
+		}
+
 		if err := isolation.ApplyLandlock(allowPaths...); err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n", ui.StyleDenied.Render("ERROR"), err)
 			if hint := hintFor(err, cmdArgs); hint != "" {
@@ -194,6 +236,17 @@ func main() {
 			os.Exit(0)
 		}
 
+		// Check for active session
+		sess, err := revert.MostRecentSession(cwd)
+		if err == nil {
+			if err := revert.RunShadowDiff(cwd, sess.UpperDir, os.Stdout); err != nil {
+				printSubcommandError("diff", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+
+		// Fallback to git diff
 		if err := revert.RunDiff(cwd, os.Stdout); err != nil {
 			printSubcommandError("diff", err)
 			os.Exit(1)
@@ -207,6 +260,26 @@ func main() {
 			os.Exit(1)
 		}
 
+		// Check for active session
+		sess, err := revert.MostRecentSession(cwd)
+		if err == nil {
+			if !force {
+				fmt.Fprintf(os.Stdout, "%s Discard active overlay session changes? [y/N]: ", ui.StyleMeta.Render("PROMPT"))
+				var response string
+				if _, err := fmt.Fscanln(os.Stdin, &response); err != nil || (response != "y" && response != "yes" && response != "Y" && response != "YES") {
+					fmt.Fprintf(os.Stdout, "%s\n", ui.StyleMeta.Render("Revert cancelled."))
+					os.Exit(0)
+				}
+			}
+			if err := revert.DiscardSession(sess); err != nil {
+				printSubcommandError("revert", fmt.Errorf("failed to discard session: %w", err))
+				os.Exit(1)
+			}
+			fmt.Fprintf(os.Stdout, "%s\n", ui.StyleAllowed.Render("Overlay session discarded. Working directory remains unchanged."))
+			os.Exit(0)
+		}
+
+		// Fallback to git revert
 		if err := revert.Revert(cwd, force, os.Stdin, os.Stdout); err != nil {
 			if errors.Is(err, revert.ErrRevertCancelled) {
 				os.Exit(0)
@@ -217,9 +290,21 @@ func main() {
 
 	case "apply":
 		shadowUpper := parseShadowFlag(args)
-		if shadowUpper == "" {
-			printSubcommandError("apply", errors.New("--shadow=<dir> argument is required"))
+		cwd, err := os.Getwd()
+		if err != nil {
+			printSubcommandError("apply", fmt.Errorf("failed to get working directory: %w", err))
 			os.Exit(1)
+		}
+
+		var sess *revert.Session
+		if shadowUpper == "" {
+			s, err := revert.MostRecentSession(cwd)
+			if err != nil {
+				printSubcommandError("apply", err)
+				os.Exit(1)
+			}
+			sess = s
+			shadowUpper = sess.UpperDir
 		}
 
 		if _, err := os.Stat(shadowUpper); err != nil {
@@ -237,15 +322,12 @@ func main() {
 			}
 		}
 
-		cwd, err := os.Getwd()
-		if err != nil {
-			printSubcommandError("apply", fmt.Errorf("failed to get working directory: %w", err))
-			os.Exit(1)
-		}
-
 		if err := revert.ApplyShadowChanges(cwd, shadowUpper); err != nil {
 			printSubcommandError("apply", err)
 			os.Exit(1)
+		}
+		if sess != nil {
+			_ = revert.DiscardSession(sess)
 		}
 		fmt.Fprintf(os.Stdout, "%s\n", ui.StyleAllowed.Render("Shadow changes applied to working directory."))
 

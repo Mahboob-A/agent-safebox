@@ -539,8 +539,8 @@ func TestCLILifecycleRunDiffRevert(t *testing.T) {
 	if revertErr != nil {
 		t.Fatalf("safebox revert --yes failed: %v, output: %s", revertErr, string(revertOut))
 	}
-	if !strings.Contains(string(revertOut), "Working tree restored.") {
-		t.Errorf("expected 'Working tree restored.' in revert output, got: %s", string(revertOut))
+	if !strings.Contains(string(revertOut), "Working tree restored.") && !strings.Contains(string(revertOut), "Overlay session discarded") {
+		t.Errorf("expected 'Working tree restored.' or 'Overlay session discarded' in revert output, got: %s", string(revertOut))
 	}
 
 	// Phase 3 verification: safebox diff reports clean working tree
@@ -687,12 +687,13 @@ func TestCLIShadowLifecycle(t *testing.T) {
 }
 
 func TestCLIApplyRequiresShadow(t *testing.T) {
-	out, err := runCLI("apply")
+	freshDir := t.TempDir()
+	out, err := runCLIInDir(freshDir, "apply")
 	if err == nil {
-		t.Fatalf("expected error when --shadow is missing, got success: %s", string(out))
+		t.Fatalf("expected error when no session or --shadow exists, got success: %s", string(out))
 	}
-	if !strings.Contains(string(out), "--shadow=<dir> argument is required") {
-		t.Errorf("expected '--shadow=<dir> argument is required' in output, got: %s", string(out))
+	if !strings.Contains(string(out), "no active session") && !strings.Contains(string(out), "--shadow=<dir>") {
+		t.Errorf("expected error about missing session or --shadow, got: %s", string(out))
 	}
 }
 

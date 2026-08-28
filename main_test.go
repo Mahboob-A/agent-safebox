@@ -1037,3 +1037,86 @@ func TestCLISubcommandsTraceOutput(t *testing.T) {
 		t.Errorf("expected revert trace in stderr, got: %q", revertErr)
 	}
 }
+
+func TestCLIToolPathDenialAndHint(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "custom_tool.sh")
+	scriptContent := "#!/bin/sh\necho 'custom tool running'\n"
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		t.Fatalf("failed to write custom tool script: %v", err)
+	}
+
+	// 1. Running without --allow-path must fail with permission denied and hint
+	_, stderr, err := runCLISplit("", "run", "--", scriptPath)
+	if err == nil {
+		t.Fatalf("expected custom tool to fail without allow-path, got success")
+	}
+	if !strings.Contains(stderr, "permission denied") && !strings.Contains(stderr, "DENIED") {
+		t.Errorf("expected permission denied or DENIED in stderr, got: %s", stderr)
+	}
+	expectedHint := fmt.Sprintf("--allow-path=%s", tmpDir)
+	if !strings.Contains(stderr, expectedHint) {
+		t.Errorf("expected hint with %q, got: %s", expectedHint, stderr)
+	}
+
+	// 2. Running with --allow-path must succeed
+	stdout, stderr, err := runCLISplit("", "run", "--allow-path="+tmpDir, "--", scriptPath)
+	if err != nil {
+		t.Fatalf("expected custom tool to succeed with --allow-path, got err: %v, stderr: %s", err, stderr)
+	}
+	if !strings.Contains(stdout, "custom tool running") {
+		t.Errorf("expected 'custom tool running' in stdout, got: %s", stdout)
+	}
+}
+
+func TestCLIRealAgyAgentIntegration(t *testing.T) {
+	agyPath := "/root/.local/bin/agy"
+	if _, err := os.Stat(agyPath); err != nil {
+		t.Skipf("real agent binary %s not available on this host: %v", agyPath, err)
+	}
+
+	// 1. Without allow-path: must fail and suggest allow-path
+	_, stderr, err := runCLISplit("", "run", "--", agyPath, "--version")
+	if err == nil {
+		t.Fatalf("expected real agy binary to fail without allow-path, got success")
+	}
+	if !strings.Contains(stderr, "--allow-path=/root/.local/bin") {
+		t.Errorf("expected hint to contain '--allow-path=/root/.local/bin', got: %s", stderr)
+	}
+
+	// 2. With allow-path: must succeed and report version
+	stdout, stderr, err := runCLISplit("", "run", "--allow-path=/root/.local/bin", "--", agyPath, "--version")
+	if err != nil {
+		t.Fatalf("safebox run with --allow-path failed for real agy: %v, stderr: %s", err, stderr)
+	}
+	if strings.TrimSpace(stdout) == "" {
+		t.Errorf("expected non-empty version output from agy, got: %q", stdout)
+	}
+}
+
+func TestCLISessionAutomaticPrune(t *testing.T) {
+	sessionRoot := t.TempDir()
+	t.Setenv("SAFEBOX_SESSION_ROOT", sessionRoot)
+
+	// Create an artificially stale session (>24h ago)
+	oldSessDir := filepath.Join(sessionRoot, "sess-old-probe")
+	if err := os.MkdirAll(filepath.Join(oldSessDir, "upper"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	oldMeta := fmt.Sprintf(`{"id":"sess-old-probe","base_dir":%q,"lower_dir":%q,"created_at":"2020-01-01T00:00:00Z"}`, oldSessDir, t.TempDir())
+	if err := os.WriteFile(filepath.Join(oldSessDir, "session.json"), []byte(oldMeta), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run safebox run, which triggers automatic session pruning
+	cmd := exec.Command(testBinaryPath, "run", "--quiet", "--", "true")
+	cmd.Env = append(os.Environ(), "SAFEBOX_SESSION_ROOT="+sessionRoot, "LANG=C")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("safebox run failed: %v, output: %s", err, string(out))
+	}
+
+	// Assert stale session was purged
+	if _, err := os.Stat(oldSessDir); !os.IsNotExist(err) {
+		t.Errorf("expected stale session directory %s to be pruned by safebox run", oldSessDir)
+	}
+}

@@ -12,7 +12,8 @@ func TestDefaultSysProcAttr(t *testing.T) {
 		t.Fatal("expected non-nil SysProcAttr")
 	}
 
-	expectedFlags := uintptr(syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS | syscall.CLONE_NEWNET)
+	expectedFlags := uintptr(syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS | syscall.CLONE_NEWNET |
+		syscall.CLONE_NEWIPC | syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID)
 	if attr.Cloneflags != expectedFlags {
 		t.Fatalf("expected Cloneflags == %v, got %v", expectedFlags, attr.Cloneflags)
 	}

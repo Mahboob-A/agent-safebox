@@ -193,3 +193,79 @@ func TestUnmountOverlayValidation(t *testing.T) {
 		t.Error("expected error for empty target directory in UnmountOverlay")
 	}
 }
+
+func TestMountSessionOverlaySubprocess(t *testing.T) {
+	if os.Getenv("GO_WANT_SESSION_OVERLAY_HELPER") == "1" {
+		lowerDir := os.Getenv("SAFEBOX_TEST_LOWER")
+		upperDir := os.Getenv("SAFEBOX_TEST_UPPER")
+		workDir := os.Getenv("SAFEBOX_TEST_WORK")
+		mergedDir := os.Getenv("SAFEBOX_TEST_MERGED")
+
+		if err := MountSessionOverlay(lowerDir, upperDir, workDir, mergedDir); err != nil {
+			os.Stderr.WriteString("mount error: " + err.Error() + "\n")
+			os.Exit(1)
+		}
+
+		testFile := filepath.Join(mergedDir, "session_probe.txt")
+		if err := os.WriteFile(testFile, []byte("overlay session data\n"), 0600); err != nil {
+			os.Stderr.WriteString("write error: " + err.Error() + "\n")
+			os.Exit(2)
+		}
+
+		if err := UnmountOverlay(mergedDir); err != nil {
+			os.Stderr.WriteString("unmount error: " + err.Error() + "\n")
+			os.Exit(3)
+		}
+		os.Exit(0)
+	}
+
+	tmpDir := t.TempDir()
+	lowerDir := filepath.Join(tmpDir, "lower")
+	upperDir := filepath.Join(tmpDir, "upper")
+	workDir := filepath.Join(tmpDir, "work")
+	mergedDir := filepath.Join(tmpDir, "merged")
+
+	if err := os.MkdirAll(lowerDir, 0700); err != nil {
+		t.Fatalf("failed to create lowerDir: %v", err)
+	}
+	if err := os.MkdirAll(upperDir, 0700); err != nil {
+		t.Fatalf("failed to create upperDir: %v", err)
+	}
+	if err := os.MkdirAll(workDir, 0700); err != nil {
+		t.Fatalf("failed to create workDir: %v", err)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestMountSessionOverlaySubprocess")
+	cmd.Env = append(os.Environ(),
+		"GO_WANT_SESSION_OVERLAY_HELPER=1",
+		"SAFEBOX_TEST_LOWER="+lowerDir,
+		"SAFEBOX_TEST_UPPER="+upperDir,
+		"SAFEBOX_TEST_WORK="+workDir,
+		"SAFEBOX_TEST_MERGED="+mergedDir,
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS,
+		UidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
+		},
+		GidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getgid(), Size: 1},
+		},
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("session overlay subprocess failed: %v, output: %s", err, string(out))
+	}
+
+	// Verify upper contains the written file
+	upperCreated := filepath.Join(upperDir, "session_probe.txt")
+	if _, err := os.Stat(upperCreated); err != nil {
+		t.Errorf("expected session_probe.txt to exist in upperDir, err: %v", err)
+	}
+	// Verify lower is unchanged
+	lowerCreated := filepath.Join(lowerDir, "session_probe.txt")
+	if _, err := os.Stat(lowerCreated); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected session_probe.txt NOT to exist in lowerDir")
+	}
+}

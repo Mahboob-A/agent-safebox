@@ -57,6 +57,22 @@ func MountOverlay(cfg OverlayConfig) error {
 	return nil
 }
 
+// MountSessionOverlay mounts an unprivileged OverlayFS on mergedDir using
+// lowerDir (read-only), upperDir (read-write), and workDir.
+func MountSessionOverlay(lowerDir, upperDir, workDir, mergedDir string) error {
+	if lowerDir == "" || upperDir == "" || workDir == "" || mergedDir == "" {
+		return errors.New("safebox: all overlay directory paths (lower, upper, work, merged) must be specified")
+	}
+	if err := os.MkdirAll(mergedDir, 0700); err != nil {
+		return fmt.Errorf("safebox: failed to create merged overlay mount point: %w", err)
+	}
+	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerDir, upperDir, workDir)
+	if err := syscall.Mount("overlay", mergedDir, "overlay", 0, opts); err != nil {
+		return fmt.Errorf("safebox: failed to mount overlayfs: %w", err)
+	}
+	return nil
+}
+
 // UnmountOverlay unmounts an active OverlayFS filesystem from TargetDir.
 func UnmountOverlay(targetDir string) error {
 	if targetDir == "" {

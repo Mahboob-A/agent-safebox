@@ -13,6 +13,13 @@ import (
 	"safebox/internal/trace"
 )
 
+func forkExec(binPath string, args []string) (int, error) {
+	return syscall.ForkExec(binPath, args, &syscall.ProcAttr{
+		Env:   os.Environ(),
+		Files: []uintptr{0, 1, 2},
+	})
+}
+
 // RunShim executes the wrapped command as a supervised child process (PID 2)
 // inside the PID namespace while keeping the current process as PID 1 to
 // forward signals and reap reparented orphan processes.
@@ -39,29 +46,19 @@ func RunShim(args []string, tr *trace.Tracer) error {
 	var forkErr error
 	if tr != nil {
 		err = tr.Step("exec handoff", func() error {
-			childPid, forkErr = syscall.ForkExec(binPath, args, &syscall.ProcAttr{
-				Env:   os.Environ(),
-				Files: []uintptr{0, 1, 2},
-			})
+			childPid, forkErr = forkExec(binPath, args)
 			return forkErr
 		})
-		if err != nil {
-			if errors.Is(forkErr, syscall.EACCES) || errors.Is(forkErr, os.ErrPermission) {
-				return &ErrExecDenied{Bin: binPath, Path: filepath.Dir(binPath)}
-			}
-			return fmt.Errorf("safebox: fork/exec failed: %w", err)
-		}
 	} else {
-		childPid, err = syscall.ForkExec(binPath, args, &syscall.ProcAttr{
-			Env:   os.Environ(),
-			Files: []uintptr{0, 1, 2},
-		})
-		if err != nil {
-			if errors.Is(err, syscall.EACCES) || errors.Is(err, os.ErrPermission) {
-				return &ErrExecDenied{Bin: binPath, Path: filepath.Dir(binPath)}
-			}
-			return fmt.Errorf("safebox: fork/exec failed: %w", err)
+		childPid, forkErr = forkExec(binPath, args)
+		err = forkErr
+	}
+
+	if err != nil {
+		if errors.Is(forkErr, syscall.EACCES) || errors.Is(forkErr, os.ErrPermission) {
+			return &ErrExecDenied{Bin: binPath, Path: filepath.Dir(binPath)}
 		}
+		return fmt.Errorf("safebox: fork/exec failed: %w", err)
 	}
 
 	done := make(chan struct{})

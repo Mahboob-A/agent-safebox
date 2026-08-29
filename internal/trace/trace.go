@@ -13,6 +13,7 @@ import (
 type Tracer struct {
 	Enabled bool
 	Out     io.Writer
+	Process string
 }
 
 // New constructs a new Tracer with default output directed to os.Stderr.
@@ -23,8 +24,25 @@ func New(enabled bool) *Tracer {
 	}
 }
 
+// NewWithWriter constructs a new Tracer with custom output destination.
+func NewWithWriter(enabled bool, out io.Writer) *Tracer {
+	return &Tracer{
+		Enabled: enabled,
+		Out:     out,
+	}
+}
+
+// NewChild constructs a new Tracer configured with the child process prefix.
+func NewChild(enabled bool) *Tracer {
+	return &Tracer{
+		Enabled: enabled,
+		Out:     os.Stderr,
+		Process: "child",
+	}
+}
+
 // Step executes fn and, if tracing is enabled, records its elapsed duration
-// and renders its status to Out in the standard [safebox] trace format.
+// and renders its status to Out in the standard [safebox] or [safebox:child] format.
 func (t *Tracer) Step(name string, fn func() error) error {
 	if t == nil || !t.Enabled {
 		return fn()
@@ -44,7 +62,12 @@ func (t *Tracer) Step(name string, fn func() error) error {
 		out = os.Stderr
 	}
 
-	fmt.Fprintf(out, "[safebox] %-28s %s  %v\n", name, status, elapsed)
+	prefix := ""
+	if t.Process == "child" {
+		prefix = ":child"
+	}
+
+	fmt.Fprintf(out, "[safebox%s] %-28s %s  %v\n", prefix, name, status, elapsed)
 	return err
 }
 
@@ -64,5 +87,10 @@ func (t *Tracer) Log(name string, err error, elapsed time.Duration) {
 		out = os.Stderr
 	}
 
-	fmt.Fprintf(out, "[safebox] %-28s %s  %v\n", name, status, elapsed)
+	prefix := ""
+	if t.Process == "child" {
+		prefix = ":child"
+	}
+
+	fmt.Fprintf(out, "[safebox%s] %-28s %s  %v\n", prefix, name, status, elapsed)
 }

@@ -107,3 +107,62 @@ func TestTracerLog(t *testing.T) {
 		t.Errorf("expected formatted log line, got: %s", out)
 	}
 }
+
+func TestTraceChildPrefix(t *testing.T) {
+	var buf bytes.Buffer
+	tr := NewChild(true)
+	tr.Out = &buf
+
+	err := tr.Step("overlayfs mount", func() error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "[safebox:child]") {
+		t.Errorf("expected [safebox:child] prefix, got: %s", out)
+	}
+	if !strings.Contains(out, "overlayfs mount") {
+		t.Errorf("expected step name 'overlayfs mount', got: %s", out)
+	}
+}
+
+func TestTraceParentFormat(t *testing.T) {
+	var buf bytes.Buffer
+	tr := New(true)
+	tr.Out = &buf
+
+	err := tr.Step("session initialize", func() error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "[safebox]") {
+		t.Errorf("expected [safebox] prefix, got: %s", out)
+	}
+	if strings.Contains(out, "[safebox:child]") {
+		t.Errorf("unexpected [safebox:child] prefix in parent tracer, got: %s", out)
+	}
+}
+
+func TestTraceNewWithWriterCapturesOutput(t *testing.T) {
+	var buf bytes.Buffer
+	tr := NewWithWriter(true, &buf)
+
+	err := tr.Step("custom writer step", func() error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "[safebox]") || !strings.Contains(out, "custom writer step") {
+		t.Errorf("expected captured output in custom buffer, got: %s", out)
+	}
+}

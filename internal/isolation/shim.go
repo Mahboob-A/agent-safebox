@@ -8,12 +8,14 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
+
+	"safebox/internal/trace"
 )
 
 // RunShim executes the wrapped command as a supervised child process (PID 2)
 // inside the PID namespace while keeping the current process as PID 1 to
 // forward signals and reap reparented orphan processes.
-func RunShim(args []string) error {
+func RunShim(args []string, tr *trace.Tracer) error {
 	runtime.LockOSThread()
 
 	if len(args) == 0 {
@@ -29,12 +31,27 @@ func RunShim(args []string) error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer signal.Stop(sigCh)
 
-	childPid, err := syscall.ForkExec(binPath, args, &syscall.ProcAttr{
-		Env:   os.Environ(),
-		Files: []uintptr{0, 1, 2},
-	})
-	if err != nil {
-		return fmt.Errorf("safebox: fork/exec failed: %w", err)
+	var childPid int
+	var forkErr error
+	if tr != nil {
+		err = tr.Step("exec handoff", func() error {
+			childPid, forkErr = syscall.ForkExec(binPath, args, &syscall.ProcAttr{
+				Env:   os.Environ(),
+				Files: []uintptr{0, 1, 2},
+			})
+			return forkErr
+		})
+		if err != nil {
+			return fmt.Errorf("safebox: fork/exec failed: %w", err)
+		}
+	} else {
+		childPid, err = syscall.ForkExec(binPath, args, &syscall.ProcAttr{
+			Env:   os.Environ(),
+			Files: []uintptr{0, 1, 2},
+		})
+		if err != nil {
+			return fmt.Errorf("safebox: fork/exec failed: %w", err)
+		}
 	}
 
 	done := make(chan struct{})

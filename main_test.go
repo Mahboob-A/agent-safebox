@@ -1033,10 +1033,63 @@ func TestCLIRunDefaultTraceOutput(t *testing.T) {
 	if !strings.Contains(stderr, "[safebox]") {
 		t.Fatalf("expected [safebox] prefix in stderr, got: %q", stderr)
 	}
-	for _, step := range []string{"session initialize", "namespace isolation", "overlayfs mount", "landlock restrict", "exec handoff"} {
+	if !strings.Contains(stderr, "[safebox:child]") {
+		t.Fatalf("expected [safebox:child] prefix in stderr, got: %q", stderr)
+	}
+	for _, step := range []string{"session initialize", "wrapped command execution", "overlayfs mount", "landlock restrict", "exec handoff"} {
 		if !strings.Contains(stderr, step) {
 			t.Errorf("expected step %q in stderr trace, got:\n%s", step, stderr)
 		}
+	}
+}
+
+func TestCLIRunTraceOrder(t *testing.T) {
+	dir := t.TempDir()
+	stdout, stderr, err := runCLISplit(dir, "run", "--", "echo", "order_test")
+	if err != nil {
+		t.Fatalf("run failed: %v, stderr: %s", err, stderr)
+	}
+	if !strings.Contains(stdout, "order_test") {
+		t.Errorf("expected order_test in stdout, got: %q", stdout)
+	}
+
+	idxInit := strings.Index(stderr, "session initialize")
+	idxMount := strings.Index(stderr, "overlayfs mount")
+	idxLandlock := strings.Index(stderr, "landlock restrict")
+	idxHandoff := strings.Index(stderr, "exec handoff")
+	idxWrapped := strings.Index(stderr, "wrapped command execution")
+
+	if idxInit == -1 || idxMount == -1 || idxLandlock == -1 || idxHandoff == -1 || idxWrapped == -1 {
+		t.Fatalf("missing one or more trace steps in stderr:\n%s", stderr)
+	}
+
+	if !(idxInit < idxMount && idxMount < idxLandlock && idxLandlock < idxHandoff && idxHandoff < idxWrapped) {
+		t.Errorf("expected trace order init < mount < landlock < handoff < wrapped, got indices: init=%d mount=%d landlock=%d handoff=%d wrapped=%d\nFull stderr:\n%s",
+			idxInit, idxMount, idxLandlock, idxHandoff, idxWrapped, stderr)
+	}
+}
+
+func TestCLIRunExecHandoffTiming(t *testing.T) {
+	dir := t.TempDir()
+	_, stderr, err := runCLISplit(dir, "run", "--", "echo", "timing_test")
+	if err != nil {
+		t.Fatalf("run failed: %v, stderr: %s", err, stderr)
+	}
+	lines := strings.Split(stderr, "\n")
+	foundHandoff := false
+	for _, line := range lines {
+		if strings.Contains(line, "exec handoff") {
+			foundHandoff = true
+			if !strings.Contains(line, "[safebox:child]") {
+				t.Errorf("expected [safebox:child] prefix on exec handoff line, got: %s", line)
+			}
+			if strings.HasSuffix(strings.TrimSpace(line), " 0s") {
+				t.Errorf("expected non-zero duration for exec handoff, got: %s", line)
+			}
+		}
+	}
+	if !foundHandoff {
+		t.Fatalf("did not find 'exec handoff' line in stderr:\n%s", stderr)
 	}
 }
 

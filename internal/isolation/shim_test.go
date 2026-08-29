@@ -10,14 +10,14 @@ import (
 )
 
 func TestRunShimEmptyArgs(t *testing.T) {
-	err := RunShim([]string{})
+	err := RunShim([]string{}, nil)
 	if err == nil {
 		t.Fatal("expected error for empty args, got nil")
 	}
 }
 
 func TestRunShimNonExistentBinary(t *testing.T) {
-	err := RunShim([]string{"/non/existent/binary_xyz_123"})
+	err := RunShim([]string{"/non/existent/binary_xyz_123"}, nil)
 	if err == nil {
 		t.Fatal("expected error for non-existent binary, got nil")
 	}
@@ -29,7 +29,7 @@ func TestHelperProcess(t *testing.T) {
 		return
 	}
 	args := os.Args[3:]
-	if err := RunShim(args); err != nil {
+	if err := RunShim(args, nil); err != nil {
 		os.Exit(1)
 	}
 }

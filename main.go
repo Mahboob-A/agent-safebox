@@ -190,7 +190,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err := tr.Step("namespace isolation", func() error {
+		if err := tr.Step("wrapped command execution", func() error {
 			return isolation.ReexecChild(allowPaths, sess.BaseDir, quiet, cmdArgs)
 		}); err != nil {
 			var exitErr *osexec.ExitError
@@ -216,7 +216,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		tr := trace.New(!quiet)
+		tr := trace.NewChild(!quiet)
 
 		if sessionDir != "" {
 			upperDir := filepath.Join(sessionDir, "upper")
@@ -250,9 +250,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		tr.Log("exec handoff", nil, 0)
-
-		if err := isolation.RunShim(cmdArgs); err != nil {
+		if err := isolation.RunShim(cmdArgs, tr); err != nil {
 			fmt.Fprintf(os.Stderr, "%s safebox: exec failed: %v\n", ui.StyleDenied.Render("ERROR"), err)
 			if hint := hintFor(err, cmdArgs); hint != "" {
 				fmt.Fprintf(os.Stderr, "  -> hint: %s\n", hint)

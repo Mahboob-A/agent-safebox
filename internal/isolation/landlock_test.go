@@ -141,3 +141,39 @@ func TestLandlockAllowPathRW(t *testing.T) {
 		t.Fatalf("expected written file with content 'rw_ok', got err: %v, content: %q", err, string(writtenContent))
 	}
 }
+
+func TestProbeLandlock(t *testing.T) {
+	tmpRO := t.TempDir()
+	tmpRW := t.TempDir()
+
+	report, err := ProbeLandlock([]string{tmpRO}, []string{tmpRW})
+	if err != nil {
+		t.Fatalf("unexpected error from ProbeLandlock: %v", err)
+	}
+
+	if report.WorkingDir == "" {
+		t.Errorf("expected non-empty WorkingDir in ProbeReport")
+	}
+
+	foundRO := false
+	for _, ro := range report.EffectiveRO {
+		if ro == tmpRO {
+			foundRO = true
+			break
+		}
+	}
+	if !foundRO {
+		t.Errorf("expected tmpRO %s in EffectiveRO, got %v", tmpRO, report.EffectiveRO)
+	}
+
+	foundRW := false
+	for _, rw := range report.EffectiveRW {
+		if rw == tmpRW {
+			foundRW = true
+			break
+		}
+	}
+	if !foundRW {
+		t.Errorf("expected tmpRW %s in EffectiveRW, got %v", tmpRW, report.EffectiveRW)
+	}
+}

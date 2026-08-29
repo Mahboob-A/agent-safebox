@@ -78,3 +78,42 @@ func ApplyLandlock(allowPathsRO []string, allowPathsRW []string) error {
 	}
 	return nil
 }
+
+// ProbeReport represents the resolved filesystem and namespace isolation policies.
+type ProbeReport struct {
+	WorkingDir  string
+	EffectiveRW []string
+	EffectiveRO []string
+	ROFiles     []string
+}
+
+// ProbeLandlock constructs the resolved ruleset without applying it to the kernel.
+func ProbeLandlock(allowPathsRO, allowPathsRW []string) (ProbeReport, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ProbeReport{}, fmt.Errorf("safebox: cannot resolve working directory: %w", err)
+	}
+
+	defaultRODirs := []string{"/usr", "/usr/local", "/lib", "/lib64", "/etc/ld.so.conf.d"}
+	allRODirs := append(defaultRODirs, allowPathsRO...)
+	roDirs := filterExisting(allRODirs)
+
+	roFiles := filterExisting([]string{
+		"/etc/ld.so.cache",
+		"/etc/ld.so.conf",
+		"/etc/nsswitch.conf",
+		"/etc/passwd",
+		"/etc/group",
+		"/etc/localtime",
+	})
+
+	filteredRW := filterExisting(allowPathsRW)
+	rwPaths := append([]string{cwd}, filteredRW...)
+
+	return ProbeReport{
+		WorkingDir:  cwd,
+		EffectiveRW: rwPaths,
+		EffectiveRO: roDirs,
+		ROFiles:     roFiles,
+	}, nil
+}

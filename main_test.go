@@ -1250,3 +1250,56 @@ func TestCLIBenchmarkStartupLatency(t *testing.T) {
 		t.Errorf("average startup latency %v exceeds %v budget (NFR3)", avgLatency, budget)
 	}
 }
+
+func TestCLIProbePrintsAllowList(t *testing.T) {
+	cmd := exec.Command(testBinaryPath, "run", "--probe", "--allow-path=/usr/local/bin", "--allow-path-rw=/tmp", "--", "true")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected --probe to exit 0, got err: %v, output: %s", err, string(out))
+	}
+	output := string(out)
+	if !strings.Contains(output, "safebox probe report") {
+		t.Errorf("expected header 'safebox probe report', got: %s", output)
+	}
+	if !strings.Contains(output, "Landlock allow-list (effective):") {
+		t.Errorf("expected 'Landlock allow-list (effective):', got: %s", output)
+	}
+	if !strings.Contains(output, "RW dirs:") || !strings.Contains(output, "RO dirs:") {
+		t.Errorf("expected RW and RO sections, got: %s", output)
+	}
+	if !strings.Contains(output, "Wrapped command will NOT be executed. Exiting.") {
+		t.Errorf("expected exit message, got: %s", output)
+	}
+}
+
+func TestCLIProbeExitsZero(t *testing.T) {
+	cmd := exec.Command(testBinaryPath, "run", "--probe", "--", "nonexistent_command_xyz_123")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected --probe to exit 0 even for non-existent binary, got err: %v, output: %s", err, string(out))
+	}
+}
+
+func TestCLIProbeRequiresDoubleDash(t *testing.T) {
+	cmd := exec.Command(testBinaryPath, "run", "--probe", "true")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected error for --probe without '--', got success with output: %s", string(out))
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+		t.Errorf("expected exit code 2, got: %v", err)
+	}
+}
+
+func TestCLIProbeUnresolvableBinary(t *testing.T) {
+	cmd := exec.Command(testBinaryPath, "run", "--probe", "--", "unresolvable_tool_xyz_999")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected --probe to exit 0, got err: %v", err)
+	}
+	output := string(out)
+	if !strings.Contains(output, `(unresolvable: "unresolvable_tool_xyz_999")`) {
+		t.Errorf("expected unresolvable binary notice, got: %s", output)
+	}
+}

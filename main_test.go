@@ -765,220 +765,83 @@ func TestCLIRevertYesEqualsTrue(t *testing.T) {
 	}
 }
 
-func TestCLIShadowLifecycle(t *testing.T) {
-	tmpDir := t.TempDir()
-	lowerDir := filepath.Join(tmpDir, "lower")
-	upperDir := filepath.Join(tmpDir, "upper")
-	workDir := filepath.Join(tmpDir, "work")
-	mergedDir := filepath.Join(tmpDir, "merged")
-
-	for _, d := range []string{lowerDir, upperDir, workDir, mergedDir} {
-		if err := os.MkdirAll(d, 0700); err != nil {
-			t.Fatalf("failed to create dir %s: %v", d, err)
-		}
+func TestCLIDiffRejectsShadowFlag(t *testing.T) {
+	cmd := exec.Command(testBinaryPath, "diff", "--shadow=/tmp/shadow")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected error when passing --shadow to diff, got success: %s", string(out))
 	}
-
-	// 1. Initial non-git workspace state
-	if err := os.WriteFile(filepath.Join(lowerDir, "base.txt"), []byte("base v1\n"), 0600); err != nil {
-		t.Fatalf("failed to write base.txt: %v", err)
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+		t.Fatalf("expected exit code 2 for --shadow in diff, got: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(lowerDir, "to_delete.txt"), []byte("to delete\n"), 0600); err != nil {
-		t.Fatalf("failed to write to_delete.txt: %v", err)
-	}
-
-	// 2. Perform mutations inside an unprivileged OverlayFS subprocess
-	helperCmd := exec.Command(os.Args[0], "-test.run=TestCLIShadowLifecycleHelper")
-	helperCmd.Env = append(os.Environ(),
-		"GO_WANT_CLI_SHADOW_HELPER=1",
-		"SAFEBOX_TEST_LOWER="+lowerDir,
-		"SAFEBOX_TEST_UPPER="+upperDir,
-		"SAFEBOX_TEST_WORK="+workDir,
-		"SAFEBOX_TEST_MERGED="+mergedDir,
-	)
-	helperCmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS,
-		UidMappings: []syscall.SysProcIDMap{
-			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
-		},
-		GidMappings: []syscall.SysProcIDMap{
-			{ContainerID: 0, HostID: os.Getgid(), Size: 1},
-		},
-	}
-	if out, err := helperCmd.CombinedOutput(); err != nil {
-		t.Fatalf("shadow helper failed: %v, output: %s", err, string(out))
-	}
-
-	// 3. Run safebox diff --shadow=<upperDir> from lowerDir (non-git dir)
-	diffOut, diffErr := runCLIInDir(lowerDir, "diff", "--shadow="+upperDir)
-	if diffErr != nil {
-		t.Fatalf("safebox diff --shadow failed: %v, output: %s", diffErr, string(diffOut))
-	}
-	diffStr := string(diffOut)
-	if !strings.Contains(diffStr, "+ [ADDED]") || !strings.Contains(diffStr, "created.txt") {
-		t.Errorf("expected added created.txt in diff output, got: %s", diffStr)
-	}
-	if !strings.Contains(diffStr, "~ [MODIFIED]") || !strings.Contains(diffStr, "base.txt") {
-		t.Errorf("expected modified base.txt in diff output, got: %s", diffStr)
-	}
-	if !strings.Contains(diffStr, "- [DELETED]") || !strings.Contains(diffStr, "to_delete.txt") {
-		t.Errorf("expected deleted to_delete.txt in diff output, got: %s", diffStr)
-	}
-
-	// 4. Run safebox apply --shadow=<upperDir> --yes
-	applyOut, applyErr := runCLIInDir(lowerDir, "apply", "--shadow="+upperDir, "--yes")
-	if applyErr != nil {
-		t.Fatalf("safebox apply --shadow failed: %v, output: %s", applyErr, string(applyOut))
-	}
-	if !strings.Contains(string(applyOut), "Shadow changes applied to working directory.") {
-		t.Errorf("expected confirmation in apply output, got: %s", string(applyOut))
-	}
-
-	// 5. Direct filesystem verification of lowerDir
-	baseContent, err := os.ReadFile(filepath.Join(lowerDir, "base.txt"))
-	if err != nil {
-		t.Fatalf("failed to read base.txt: %v", err)
-	}
-	if string(baseContent) != "base v2 modified\n" {
-		t.Errorf("expected base.txt updated, got: %s", string(baseContent))
-	}
-
-	createdContent, err := os.ReadFile(filepath.Join(lowerDir, "created.txt"))
-	if err != nil {
-		t.Fatalf("failed to read created.txt: %v", err)
-	}
-	if string(createdContent) != "newly created\n" {
-		t.Errorf("expected created.txt created, got: %s", string(createdContent))
-	}
-
-	if _, err := os.Stat(filepath.Join(lowerDir, "to_delete.txt")); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("expected to_delete.txt to be removed from lowerDir, err: %v", err)
+	if !strings.Contains(string(out), "unknown flag '--shadow'") {
+		t.Errorf("expected 'unknown flag \\'--shadow\\'' in output, got: %s", string(out))
 	}
 }
 
-func TestCLIApplyRequiresShadow(t *testing.T) {
+func TestCLIApplyRejectsShadowFlag(t *testing.T) {
+	cmd := exec.Command(testBinaryPath, "apply", "--shadow=/tmp/shadow")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected error when passing --shadow to apply, got success: %s", string(out))
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+		t.Fatalf("expected exit code 2 for --shadow in apply, got: %v", err)
+	}
+	if !strings.Contains(string(out), "unknown flag '--shadow'") {
+		t.Errorf("expected 'unknown flag \\'--shadow\\'' in output, got: %s", string(out))
+	}
+}
+
+func TestCLIApplyRequiresSession(t *testing.T) {
 	freshDir := t.TempDir()
 	out, err := runCLIInDir(freshDir, "apply")
 	if err == nil {
-		t.Fatalf("expected error when no session or --shadow exists, got success: %s", string(out))
+		t.Fatalf("expected error when no session exists, got success: %s", string(out))
 	}
-	if !strings.Contains(string(out), "no active session") && !strings.Contains(string(out), "--shadow=<dir>") {
-		t.Errorf("expected error about missing session or --shadow, got: %s", string(out))
-	}
-}
-
-func TestCLIApplyNonExistentDir(t *testing.T) {
-	out, err := runCLI("apply", "--shadow=/non/existent/shadow/dir", "--yes")
-	if err == nil {
-		t.Fatalf("expected error for non-existent shadow dir, got success: %s", string(out))
-	}
-	if !strings.Contains(string(out), "does not exist") {
-		t.Errorf("expected 'does not exist' in output, got: %s", string(out))
+	if !strings.Contains(string(out), "no active session") {
+		t.Errorf("expected error about missing session, got: %s", string(out))
 	}
 }
 
-func TestCLIDiffNonExistentShadowDir(t *testing.T) {
-	out, err := runCLI("diff", "--shadow=/non/existent/shadow/dir")
-	if err == nil {
-		t.Fatalf("expected error for non-existent shadow dir in diff, got success: %s", string(out))
-	}
-	if !strings.Contains(string(out), "does not exist") {
-		t.Errorf("expected 'does not exist' in output, got: %s", string(out))
-	}
-}
-
-func TestCLIApplyConfirmationYes(t *testing.T) {
-	tmpDir := t.TempDir()
-	lowerDir := filepath.Join(tmpDir, "lower")
-	upperDir := filepath.Join(tmpDir, "upper")
-
-	if err := os.MkdirAll(lowerDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(upperDir, 0700); err != nil {
-		t.Fatal(err)
+func TestCLIApplyInteractiveYes(t *testing.T) {
+	dir := t.TempDir()
+	_, err := runCLIInDir(dir, "run", "--", "touch", "interactive_yes.txt")
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(upperDir, "new.txt"), []byte("data\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	out, err := runCLIInDirWithStdin(lowerDir, strings.NewReader("y\n"), "apply", "--shadow="+upperDir)
+	out, err := runCLIInDirWithStdin(dir, strings.NewReader("y\n"), "apply")
 	if err != nil {
 		t.Fatalf("expected interactive apply to succeed, got: %v, output: %s", err, string(out))
 	}
 	if !strings.Contains(string(out), "Shadow changes applied to working directory.") {
 		t.Errorf("expected apply success message, got: %s", string(out))
 	}
+	if _, err := os.Stat(filepath.Join(dir, "interactive_yes.txt")); err != nil {
+		t.Errorf("expected interactive_yes.txt to exist in working dir after apply: %v", err)
+	}
 }
 
-func TestCLIApplyConfirmationNo(t *testing.T) {
-	tmpDir := t.TempDir()
-	lowerDir := filepath.Join(tmpDir, "lower")
-	upperDir := filepath.Join(tmpDir, "upper")
-
-	if err := os.MkdirAll(lowerDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(upperDir, 0700); err != nil {
-		t.Fatal(err)
+func TestCLIApplyInteractiveNo(t *testing.T) {
+	dir := t.TempDir()
+	_, err := runCLIInDir(dir, "run", "--", "touch", "interactive_no.txt")
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(upperDir, "new.txt"), []byte("data\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	out, err := runCLIInDirWithStdin(lowerDir, strings.NewReader("n\n"), "apply", "--shadow="+upperDir)
+	out, err := runCLIInDirWithStdin(dir, strings.NewReader("n\n"), "apply")
 	if err != nil {
 		t.Fatalf("expected interactive apply cancel to exit 0, got: %v, output: %s", err, string(out))
 	}
 	if !strings.Contains(string(out), "Apply cancelled.") {
 		t.Errorf("expected 'Apply cancelled.' in output, got: %s", string(out))
 	}
-	if _, err := os.Stat(filepath.Join(lowerDir, "new.txt")); !errors.Is(err, os.ErrNotExist) {
-		t.Error("expected new.txt NOT to be applied to lowerDir")
+	if _, err := os.Stat(filepath.Join(dir, "interactive_no.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected interactive_no.txt NOT to be applied to working dir, err: %v", err)
 	}
-}
-
-func TestCLIShadowLifecycleHelper(t *testing.T) {
-	if os.Getenv("GO_WANT_CLI_SHADOW_HELPER") != "1" {
-		return
-	}
-
-	lowerDir := os.Getenv("SAFEBOX_TEST_LOWER")
-	upperDir := os.Getenv("SAFEBOX_TEST_UPPER")
-	workDir := os.Getenv("SAFEBOX_TEST_WORK")
-	mergedDir := os.Getenv("SAFEBOX_TEST_MERGED")
-
-	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerDir, upperDir, workDir)
-	if err := syscall.Mount("overlay", mergedDir, "overlay", 0, opts); err != nil {
-		os.Stderr.WriteString("mount error: " + err.Error() + "\n")
-		os.Exit(1)
-	}
-
-	// 1. Modify
-	if err := os.WriteFile(filepath.Join(mergedDir, "base.txt"), []byte("base v2 modified\n"), 0600); err != nil {
-		os.Stderr.WriteString("modify error: " + err.Error() + "\n")
-		os.Exit(2)
-	}
-
-	// 2. Add
-	if err := os.WriteFile(filepath.Join(mergedDir, "created.txt"), []byte("newly created\n"), 0600); err != nil {
-		os.Stderr.WriteString("create error: " + err.Error() + "\n")
-		os.Exit(3)
-	}
-
-	// 3. Delete
-	if err := os.Remove(filepath.Join(mergedDir, "to_delete.txt")); err != nil {
-		os.Stderr.WriteString("delete error: " + err.Error() + "\n")
-		os.Exit(4)
-	}
-
-	if err := syscall.Unmount(mergedDir, 0); err != nil {
-		os.Stderr.WriteString("unmount error: " + err.Error() + "\n")
-		os.Exit(5)
-	}
-
-	os.Exit(0)
 }
 
 func TestCLISandboxOverlayWriteIsolation(t *testing.T) {

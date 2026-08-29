@@ -56,13 +56,10 @@ func hintForSubcommand(subcommand string, err error) string {
 		return ""
 	}
 	if errors.Is(err, revert.ErrNoSessionFound) {
-		return "run safebox run first or pass --shadow=<dir>"
-	}
-	if subcommand == "apply" && strings.Contains(err.Error(), "--shadow=") {
-		return "pass --shadow=<dir> or run safebox run to create a session"
+		return "run 'safebox run' first to create an overlay session"
 	}
 	if errors.Is(err, revert.ErrNotGitRepo) {
-		return "run inside a git repository or use safebox run to create an overlay session"
+		return "run inside a git repository or use 'safebox run' to create an overlay session"
 	}
 	return ""
 }
@@ -74,13 +71,13 @@ func printSubcommandError(subcommand string, err error) {
 	}
 }
 
-func parseShadowFlag(args []string) string {
+func hasShadowFlag(args []string) bool {
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "--shadow=") {
-			return strings.TrimPrefix(arg, "--shadow=")
+		if strings.HasPrefix(arg, "--shadow=") || arg == "--shadow" {
+			return true
 		}
 	}
-	return ""
+	return false
 }
 
 func hasYesFlag(args []string) bool {
@@ -169,9 +166,9 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage: safebox <command> [arguments]\n\n")
 	fmt.Fprintf(os.Stderr, "Commands:\n")
 	fmt.Fprintf(os.Stderr, "  run [--quiet|-q] [--allow-path=<dir> ...] [--allow-path-rw=<dir> ...] -- <cmd...>  Run a command inside the sandbox\n")
-	fmt.Fprintf(os.Stderr, "  diff [--quiet|-q] [--shadow=<dir>]                       Show modified, added, and deleted files\n")
+	fmt.Fprintf(os.Stderr, "  diff [--quiet|-q]                                        Show modified, added, and deleted files\n")
 	fmt.Fprintf(os.Stderr, "  revert [--quiet|-q] [--yes|-y]                           Discard session or working tree changes\n")
-	fmt.Fprintf(os.Stderr, "  apply [--quiet|-q] [--shadow=<dir>] [--yes]              Apply shadow changes to working directory\n")
+	fmt.Fprintf(os.Stderr, "  apply [--quiet|-q] [--yes|-y]                            Apply session changes to working directory\n")
 	fmt.Fprintf(os.Stderr, "  help                                                     Show help documentation\n")
 }
 
@@ -290,27 +287,17 @@ func main() {
 		}
 
 	case "diff":
+		if hasShadowFlag(args) {
+			fmt.Fprintf(os.Stderr, "%s safebox diff: unknown flag '--shadow'\n\n", ui.StyleDenied.Render("ERROR"))
+			printUsage()
+			os.Exit(2)
+		}
 		quiet := hasQuietFlag(args)
 		tr := trace.New(!quiet)
-		shadowUpper := parseShadowFlag(args)
 		cwd, err := os.Getwd()
 		if err != nil {
 			printSubcommandError("diff", fmt.Errorf("failed to get working directory: %w", err))
 			os.Exit(1)
-		}
-
-		if shadowUpper != "" {
-			if _, err := os.Stat(shadowUpper); err != nil {
-				printSubcommandError("diff", fmt.Errorf("shadow directory %q does not exist: %w", shadowUpper, err))
-				os.Exit(1)
-			}
-			if err := tr.Step("diff computation", func() error {
-				return revert.RunShadowDiff(cwd, shadowUpper, os.Stdout)
-			}); err != nil {
-				printSubcommandError("diff", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
 		}
 
 		// Check for active session
@@ -388,9 +375,13 @@ func main() {
 		}
 
 	case "apply":
+		if hasShadowFlag(args) {
+			fmt.Fprintf(os.Stderr, "%s safebox apply: unknown flag '--shadow'\n\n", ui.StyleDenied.Render("ERROR"))
+			printUsage()
+			os.Exit(2)
+		}
 		quiet := hasQuietFlag(args)
 		tr := trace.New(!quiet)
-		shadowUpper := parseShadowFlag(args)
 		cwd, err := os.Getwd()
 		if err != nil {
 			printSubcommandError("apply", fmt.Errorf("failed to get working directory: %w", err))
@@ -398,20 +389,12 @@ func main() {
 		}
 
 		var sess *revert.Session
-		if shadowUpper == "" {
-			if err := tr.Step("session discovery", func() error {
-				var sErr error
-				sess, sErr = revert.MostRecentSession(cwd, true)
-				return sErr
-			}); err != nil {
-				printSubcommandError("apply", err)
-				os.Exit(1)
-			}
-			shadowUpper = sess.UpperDir
-		}
-
-		if _, err := os.Stat(shadowUpper); err != nil {
-			printSubcommandError("apply", fmt.Errorf("shadow directory %q does not exist: %w", shadowUpper, err))
+		if err := tr.Step("session discovery", func() error {
+			var sErr error
+			sess, sErr = revert.MostRecentSession(cwd, true)
+			return sErr
+		}); err != nil {
+			printSubcommandError("apply", err)
 			os.Exit(1)
 		}
 
@@ -426,17 +409,15 @@ func main() {
 		}
 
 		if err := tr.Step("apply changes", func() error {
-			return revert.ApplyShadowChanges(cwd, shadowUpper)
+			return revert.ApplyShadowChanges(cwd, sess.UpperDir)
 		}); err != nil {
 			printSubcommandError("apply", err)
 			os.Exit(1)
 		}
 
-		if sess != nil {
-			_ = tr.Step("session cleanup", func() error {
-				return revert.DiscardSession(sess)
-			})
-		}
+		_ = tr.Step("session cleanup", func() error {
+			return revert.DiscardSession(sess)
+		})
 		fmt.Fprintf(os.Stdout, "%s\n", ui.StyleAllowed.Render("Shadow changes applied to working directory."))
 
 	case "help", "-h", "--help":

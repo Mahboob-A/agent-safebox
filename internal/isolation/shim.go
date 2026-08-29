@@ -23,19 +23,20 @@ func forkExec(binPath string, args []string) (int, error) {
 // RunShim executes the wrapped command as a supervised child process (PID 2)
 // inside the PID namespace while keeping the current process as PID 1 to
 // forward signals and reap reparented orphan processes.
-func RunShim(args []string, tr *trace.Tracer) error {
+// It returns the child process exit code and any execution error.
+func RunShim(args []string, tr *trace.Tracer) (int, error) {
 	runtime.LockOSThread()
 
 	if len(args) == 0 {
-		return errors.New("safebox: no command specified")
+		return 1, errors.New("safebox: no command specified")
 	}
 
 	binPath, err := osexec.LookPath(args[0])
 	if err != nil {
 		if errors.Is(err, syscall.EACCES) || errors.Is(err, os.ErrPermission) {
-			return &ErrExecDenied{Bin: args[0], Path: filepath.Dir(args[0])}
+			return 1, &ErrExecDenied{Bin: args[0], Path: filepath.Dir(args[0])}
 		}
-		return &ErrExecNotFound{Bin: args[0]}
+		return 1, &ErrExecNotFound{Bin: args[0]}
 	}
 
 	sigCh := make(chan os.Signal, 16)
@@ -56,9 +57,9 @@ func RunShim(args []string, tr *trace.Tracer) error {
 
 	if err != nil {
 		if errors.Is(forkErr, syscall.EACCES) || errors.Is(forkErr, os.ErrPermission) {
-			return &ErrExecDenied{Bin: binPath, Path: filepath.Dir(binPath)}
+			return 1, &ErrExecDenied{Bin: binPath, Path: filepath.Dir(binPath)}
 		}
-		return fmt.Errorf("safebox: fork/exec failed: %w", err)
+		return 1, fmt.Errorf("safebox: fork/exec failed: %w", err)
 	}
 
 	done := make(chan struct{})
@@ -84,9 +85,9 @@ func RunShim(args []string, tr *trace.Tracer) error {
 		if pid == childPid {
 			close(done)
 			if status.Signaled() {
-				os.Exit(128 + int(status.Signal()))
+				return 128 + int(status.Signal()), nil
 			}
-			os.Exit(status.ExitStatus())
+			return status.ExitStatus(), nil
 		}
 		if waitErr != nil {
 			if errors.Is(waitErr, syscall.EINTR) {
@@ -98,5 +99,5 @@ func RunShim(args []string, tr *trace.Tracer) error {
 			break
 		}
 	}
-	return nil
+	return 0, nil
 }

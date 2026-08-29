@@ -237,13 +237,15 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err := isolation.RunShim(cmdArgs, tr); err != nil {
+		code, err := isolation.RunShim(cmdArgs, tr)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s safebox: exec failed: %v\n", ui.StyleDenied.Render("ERROR"), err)
 			if hint := hintFor(err, cmdArgs); hint != "" {
 				fmt.Fprintf(os.Stderr, "  -> hint: %s\n", hint)
 			}
 			os.Exit(1)
 		}
+		os.Exit(code)
 
 	case "diff":
 		flags, err := cli.ParseDiffApplyFlags(args, "diff")

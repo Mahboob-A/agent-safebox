@@ -204,3 +204,78 @@ func TestApplyShadowChanges_Subprocess(t *testing.T) {
 		t.Errorf("expected to_delete.txt to be deleted from lowerDir, err: %v", err)
 	}
 }
+
+func TestApplyShadowChangesAtomicOnCopyFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	lowerDir := filepath.Join(tmpDir, "lower")
+	upperDir := filepath.Join(tmpDir, "upper")
+
+	if err := os.MkdirAll(lowerDir, 0700); err != nil {
+		t.Fatalf("failed to create lowerDir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(upperDir, "conflict", "nested"), 0700); err != nil {
+		t.Fatalf("failed to create upperDir: %v", err)
+	}
+
+	// 1. Initial lower file
+	if err := os.WriteFile(filepath.Join(lowerDir, "existing.txt"), []byte("original content"), 0600); err != nil {
+		t.Fatalf("failed to write lower file: %v", err)
+	}
+
+	// 2. Upper file 1 (valid modification)
+	if err := os.WriteFile(filepath.Join(upperDir, "existing.txt"), []byte("mutated content"), 0600); err != nil {
+		t.Fatalf("failed to write upper modified file: %v", err)
+	}
+
+	// 3. Upper file 2 in subfolder
+	if err := os.WriteFile(filepath.Join(upperDir, "conflict", "nested", "sub.txt"), []byte("sub content"), 0600); err != nil {
+		t.Fatalf("failed to write upper nested file: %v", err)
+	}
+
+	// Pre-create a non-directory file in staging directory that will cause MkdirAll to fail with ENOTDIR
+	sessionID := filepath.Base(filepath.Dir(upperDir))
+	stagingDir := filepath.Join(SessionRoot(), "apply-staging", sessionID)
+	if err := os.MkdirAll(stagingDir, 0700); err != nil {
+		t.Fatalf("failed to create staging dir: %v", err)
+	}
+	// Conflict: stagingDir/conflict is a regular file instead of a directory
+	if err := os.WriteFile(filepath.Join(stagingDir, "conflict"), []byte("blocking file"), 0600); err != nil {
+		t.Fatalf("failed to write conflict file: %v", err)
+	}
+	defer os.RemoveAll(stagingDir)
+
+	// Apply should fail during staging before touching lowerDir
+	err := ApplyShadowChanges(lowerDir, upperDir)
+	if err == nil {
+		t.Fatal("expected ApplyShadowChanges to fail on staging copy error, got nil")
+	}
+
+	// Lower file MUST remain untouched
+	content, err := os.ReadFile(filepath.Join(lowerDir, "existing.txt"))
+	if err != nil {
+		t.Fatalf("failed to read lower file: %v", err)
+	}
+	if string(content) != "original content" {
+		t.Errorf("expected lower file to remain %q, but got %q", "original content", string(content))
+	}
+
+	// Nested file must not exist in lowerDir
+	if _, err := os.Stat(filepath.Join(lowerDir, "conflict", "nested", "sub.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected nested file to not exist in lowerDir, err: %v", err)
+	}
+}
+
+func TestApplyShadowChangesEXDEVCrossDeviceFallback(t *testing.T) {
+	if !isEXDEV(syscall.EXDEV) {
+		t.Error("expected isEXDEV(syscall.EXDEV) to be true")
+	}
+	if !isEXDEV(&os.LinkError{Op: "rename", Old: "a", New: "b", Err: syscall.EXDEV}) {
+		t.Error("expected isEXDEV(LinkError with EXDEV) to be true")
+	}
+	if isEXDEV(os.ErrNotExist) {
+		t.Error("expected isEXDEV(ErrNotExist) to be false")
+	}
+	if isEXDEV(nil) {
+		t.Error("expected isEXDEV(nil) to be false")
+	}
+}

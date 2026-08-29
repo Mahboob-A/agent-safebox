@@ -58,10 +58,13 @@ func removeLower(path string) error {
 		if errors.Is(pathErr.Err, syscall.EISDIR) ||
 			errors.Is(pathErr.Err, syscall.ENOTEMPTY) ||
 			errors.Is(pathErr.Err, syscall.EEXIST) {
-			return os.RemoveAll(path)
+			if rmErr := os.RemoveAll(path); rmErr != nil {
+				return fmt.Errorf("removeLower: %w (fallback from %v)", rmErr, err)
+			}
+			return nil
 		}
 	}
-	return os.RemoveAll(path)
+	return err
 }
 
 func cleanupStaging(stagingDir string) {

@@ -410,3 +410,46 @@ func TestApplyShadowChangesNonExistentWhiteoutIgnored(t *testing.T) {
 		t.Errorf("expected empty upperDir apply to return nil, got: %v", err)
 	}
 }
+
+func TestRemoveLower_PermissionDenied(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("test requires non-root UID to validate DAC permission denial")
+	}
+
+	parentDir := t.TempDir()
+	childFile := filepath.Join(parentDir, "child.txt")
+	siblingFile := filepath.Join(parentDir, "sibling.txt")
+
+	// Register cleanup BEFORE revoking permissions.
+	t.Cleanup(func() {
+		_ = os.Chmod(parentDir, 0755)
+	})
+
+	// Create child and sibling files.
+	if err := os.WriteFile(childFile, []byte("child"), 0644); err != nil {
+		t.Fatalf("write child: %v", err)
+	}
+	if err := os.WriteFile(siblingFile, []byte("sibling"), 0644); err != nil {
+		t.Fatalf("write sibling: %v", err)
+	}
+
+	// Revoke parent write permission.
+	if err := os.Chmod(parentDir, 0555); err != nil {
+		t.Fatalf("chmod parent: %v", err)
+	}
+
+	// removeLower should fail (cannot unlink child without parent write).
+	err := removeLower(childFile)
+	if err == nil {
+		t.Errorf("expected removeLower to fail on permission denial, got nil")
+	}
+
+	// Sibling must remain untouched.
+	if _, err := os.Stat(siblingFile); err != nil {
+		t.Errorf("sibling file was deleted by removeLower: %v", err)
+	}
+	// Child must remain untouched (no destructive escalation).
+	if _, err := os.Stat(childFile); err != nil {
+		t.Errorf("child file was deleted by removeLower: %v", err)
+	}
+}

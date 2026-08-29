@@ -126,21 +126,73 @@ func TestParseDiffApplyFlagsOptions(t *testing.T) {
 	}
 }
 
-func TestParseDiffApplyFlagsRejectsShadow(t *testing.T) {
-	_, errDiff := ParseDiffApplyFlags([]string{"--shadow=/tmp/xyz"}, "diff")
-	if errDiff == nil {
-		t.Fatal("expected error on --shadow for diff, got nil")
+func TestParseDiffApplyFlagsRejectsExactShadow(t *testing.T) {
+	for _, arg := range []string{"--shadow", "--shadow=/tmp/xyz", "--shadow=", "--shadow=   "} {
+		_, errDiff := ParseDiffApplyFlags([]string{arg}, "diff")
+		if errDiff == nil {
+			t.Fatalf("expected error on %q for diff, got nil", arg)
+		}
+		if !strings.Contains(errDiff.Error(), "safebox diff: unknown flag '--shadow'") {
+			t.Errorf("unexpected error for %q: %v", arg, errDiff)
+		}
+
+		_, errApply := ParseDiffApplyFlags([]string{arg}, "apply")
+		if errApply == nil {
+			t.Fatalf("expected error on %q for apply, got nil", arg)
+		}
+		if !strings.Contains(errApply.Error(), "safebox apply: unknown flag '--shadow'") {
+			t.Errorf("unexpected error for %q: %v", arg, errApply)
+		}
 	}
-	if !strings.Contains(errDiff.Error(), "safebox diff: unknown flag '--shadow'") {
-		t.Errorf("unexpected error: %v", errDiff)
+}
+
+func TestParseDiffApplyFlagsDoesNotRejectSubstringShadow(t *testing.T) {
+	// Flags starting with '-' that contain "shadow" as substring must return standard unknown flag error, not the specific '--shadow' deprecation error
+	_, errDiff := ParseDiffApplyFlags([]string{"--shadow-custom"}, "diff")
+	if errDiff == nil {
+		t.Fatal("expected error on unknown flag '--shadow-custom', got nil")
+	}
+	if strings.Contains(errDiff.Error(), "unknown flag '--shadow'") {
+		t.Errorf("expected error to name full flag '--shadow-custom', got: %v", errDiff)
 	}
 
-	_, errApply := ParseDiffApplyFlags([]string{"--shadow"}, "apply")
-	if errApply == nil {
-		t.Fatal("expected error on --shadow for apply, got nil")
+	// Positional arguments containing "shadow" should be collected for diff
+	flags, err := ParseDiffApplyFlags([]string{"my-shadow-file.txt"}, "diff")
+	if err != nil {
+		t.Fatalf("unexpected error for diff positional arg: %v", err)
 	}
-	if !strings.Contains(errApply.Error(), "safebox apply: unknown flag '--shadow'") {
-		t.Errorf("unexpected error: %v", errApply)
+	if !reflect.DeepEqual(flags.Paths, []string{"my-shadow-file.txt"}) {
+		t.Errorf("expected Paths %v, got %v", []string{"my-shadow-file.txt"}, flags.Paths)
+	}
+
+	// Positional arguments containing "shadow" must be rejected for apply and revert
+	_, errApply := ParseDiffApplyFlags([]string{"my-shadow-file.txt"}, "apply")
+	if errApply == nil {
+		t.Fatal("expected error on positional arg for apply, got nil")
+	}
+	if !strings.Contains(errApply.Error(), "takes no positional arguments") {
+		t.Errorf("expected takes no positional arguments error, got: %v", errApply)
+	}
+}
+
+func TestParseDiffApplyFlagsPositionalArgs(t *testing.T) {
+	flags, err := ParseDiffApplyFlags([]string{"--quiet", "file1.txt", "dir/file2.txt"}, "diff")
+	if err != nil {
+		t.Fatalf("ParseDiffApplyFlags for diff failed: %v", err)
+	}
+	if !flags.Quiet {
+		t.Error("expected Quiet=true")
+	}
+	if !reflect.DeepEqual(flags.Paths, []string{"file1.txt", "dir/file2.txt"}) {
+		t.Errorf("expected Paths %v, got %v", []string{"file1.txt", "dir/file2.txt"}, flags.Paths)
+	}
+
+	_, errRevert := ParseDiffApplyFlags([]string{"file1.txt"}, "revert")
+	if errRevert == nil {
+		t.Fatal("expected error on positional arg for revert, got nil")
+	}
+	if !strings.Contains(errRevert.Error(), "safebox revert: takes no positional arguments") {
+		t.Errorf("expected revert positional arg error, got: %v", errRevert)
 	}
 }
 

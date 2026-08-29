@@ -108,12 +108,16 @@ func ScanShadowChanges(lowerDir, upperDir string) ([]FileChange, error) {
 }
 
 // RunShadowDiff scans upperDir against lowerDir, formats the changes using Lipgloss styling, and writes them to out.
-func RunShadowDiff(lowerDir, upperDir string, out io.Writer) error {
+// If paths are supplied, only changes falling under those paths are displayed.
+func RunShadowDiff(lowerDir, upperDir string, out io.Writer, paths ...string) error {
 	changes, err := ScanShadowChanges(lowerDir, upperDir)
 	if err != nil {
 		return err
 	}
+	if len(paths) > 0 {
+		changes = filterChanges(changes, paths, lowerDir)
+	}
 	formatted := FormatChanges(changes)
-	_, err = io.WriteString(out, formatted)
+	_, err = fmt.Fprintln(out, formatted)
 	return err
 }

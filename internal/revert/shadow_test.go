@@ -232,3 +232,121 @@ func TestRunShadowDiffOutput(t *testing.T) {
 		t.Errorf("expected existing.txt in diff output, got: %s", diffOut)
 	}
 }
+
+func setupShadowDirsWithThreeChanges(t *testing.T) (string, string) {
+	tmpDir := t.TempDir()
+	lowerDir := filepath.Join(tmpDir, "lower")
+	upperDir := filepath.Join(tmpDir, "upper")
+
+	for _, d := range []string{lowerDir, upperDir} {
+		if err := os.MkdirAll(filepath.Join(d, "subdir", "nested"), 0700); err != nil {
+			t.Fatalf("failed to create dir %s: %v", d, err)
+		}
+	}
+
+	// Change 1: root file modified
+	if err := os.WriteFile(filepath.Join(lowerDir, "a.txt"), []byte("lower a\n"), 0600); err != nil {
+		t.Fatalf("failed to write lower a.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(upperDir, "a.txt"), []byte("upper modified a\n"), 0600); err != nil {
+		t.Fatalf("failed to write upper a.txt: %v", err)
+	}
+
+	// Change 2: subdir file added
+	if err := os.WriteFile(filepath.Join(upperDir, "subdir", "b.txt"), []byte("added b\n"), 0600); err != nil {
+		t.Fatalf("failed to write b.txt: %v", err)
+	}
+
+	// Change 3: nested file added
+	if err := os.WriteFile(filepath.Join(upperDir, "subdir", "nested", "c.txt"), []byte("added c\n"), 0600); err != nil {
+		t.Fatalf("failed to write c.txt: %v", err)
+	}
+
+	return lowerDir, upperDir
+}
+
+func TestRunShadowDiff_PathFilterRelativePaths(t *testing.T) {
+	lowerDir, upperDir := setupShadowDirsWithThreeChanges(t)
+
+	// 1. Relative exact match
+	var buf bytes.Buffer
+	if err := RunShadowDiff(lowerDir, upperDir, &buf, "subdir/b.txt"); err != nil {
+		t.Fatalf("RunShadowDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "subdir/b.txt") {
+		t.Errorf("expected subdir/b.txt in output, got: %s", buf.String())
+	}
+	if strings.Contains(buf.String(), "a.txt") || strings.Contains(buf.String(), "c.txt") {
+		t.Errorf("unexpected files in relative exact match output: %s", buf.String())
+	}
+
+	// 2. Relative prefix match
+	buf.Reset()
+	if err := RunShadowDiff(lowerDir, upperDir, &buf, "subdir"); err != nil {
+		t.Fatalf("RunShadowDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "subdir/b.txt") || !strings.Contains(buf.String(), "subdir/nested/c.txt") {
+		t.Errorf("expected subdir children in output, got: %s", buf.String())
+	}
+	if strings.Contains(buf.String(), "a.txt") {
+		t.Errorf("unexpected a.txt in relative prefix match output: %s", buf.String())
+	}
+}
+
+func TestRunShadowDiff_PathFilterAbsolutePaths(t *testing.T) {
+	lowerDir, upperDir := setupShadowDirsWithThreeChanges(t)
+
+	// 1. Absolute exact match
+	var buf bytes.Buffer
+	absB := filepath.Join(lowerDir, "subdir", "b.txt")
+	if err := RunShadowDiff(lowerDir, upperDir, &buf, absB); err != nil {
+		t.Fatalf("RunShadowDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "subdir/b.txt") {
+		t.Errorf("expected subdir/b.txt in output, got: %s", buf.String())
+	}
+	if strings.Contains(buf.String(), "a.txt") {
+		t.Errorf("unexpected a.txt in absolute exact match output: %s", buf.String())
+	}
+
+	// 2. Absolute prefix match
+	buf.Reset()
+	absSubdir := filepath.Join(lowerDir, "subdir")
+	if err := RunShadowDiff(lowerDir, upperDir, &buf, absSubdir); err != nil {
+		t.Fatalf("RunShadowDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "subdir/b.txt") || !strings.Contains(buf.String(), "subdir/nested/c.txt") {
+		t.Errorf("expected subdir children in output, got: %s", buf.String())
+	}
+
+	// 3. Absolute path outside baseDir returns clean diff
+	buf.Reset()
+	if err := RunShadowDiff(lowerDir, upperDir, &buf, "/tmp/nonexistent-outside-dir"); err != nil {
+		t.Fatalf("RunShadowDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Working tree is clean") {
+		t.Errorf("expected clean working tree message for outside path, got: %s", buf.String())
+	}
+}
+
+func TestRunShadowDiff_PathFilterEmptyPath(t *testing.T) {
+	lowerDir, upperDir := setupShadowDirsWithThreeChanges(t)
+
+	// Empty path slice returns all changes
+	var buf bytes.Buffer
+	if err := RunShadowDiff(lowerDir, upperDir, &buf); err != nil {
+		t.Fatalf("RunShadowDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "a.txt") || !strings.Contains(buf.String(), "subdir/b.txt") || !strings.Contains(buf.String(), "subdir/nested/c.txt") {
+		t.Errorf("expected all 3 changes in unfiltered shadow diff, got: %s", buf.String())
+	}
+
+	// Single empty string "" returns all changes
+	buf.Reset()
+	if err := RunShadowDiff(lowerDir, upperDir, &buf, ""); err != nil {
+		t.Fatalf("RunShadowDiff with empty string failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "a.txt") || !strings.Contains(buf.String(), "subdir/b.txt") {
+		t.Errorf("expected all changes with empty string path, got: %s", buf.String())
+	}
+}

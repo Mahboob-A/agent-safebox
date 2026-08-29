@@ -35,10 +35,14 @@ func FormatChanges(changes []FileChange) string {
 }
 
 // RunDiff inspects the working directory and outputs the formatted change summary.
-func RunDiff(workDir string, out io.Writer) error {
+// If paths are supplied, only changes falling under those paths are displayed.
+func RunDiff(workDir string, out io.Writer, paths ...string) error {
 	changes, err := GetStatus(workDir)
 	if err != nil {
 		return err
+	}
+	if len(paths) > 0 {
+		changes = filterChanges(changes, paths, workDir)
 	}
 	fmt.Fprintln(out, FormatChanges(changes))
 	return nil

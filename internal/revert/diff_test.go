@@ -87,3 +87,110 @@ func TestRunDiff(t *testing.T) {
 		t.Errorf("expected ErrNotGitRepo, got: %v", err)
 	}
 }
+
+func setupGitRepoWithThreeChanges(t *testing.T) string {
+	gitDir := setupTestGitRepo(t)
+
+	// Change 1: root file modified
+	if err := os.WriteFile(filepath.Join(gitDir, "a.txt"), []byte("modified a\n"), 0600); err != nil {
+		t.Fatalf("failed to write a.txt: %v", err)
+	}
+	// Change 2: subdir file added
+	if err := os.MkdirAll(filepath.Join(gitDir, "subdir", "nested"), 0700); err != nil {
+		t.Fatalf("failed to create subdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "subdir", "b.txt"), []byte("added b\n"), 0600); err != nil {
+		t.Fatalf("failed to write b.txt: %v", err)
+	}
+	// Change 3: nested file added
+	if err := os.WriteFile(filepath.Join(gitDir, "subdir", "nested", "c.txt"), []byte("added c\n"), 0600); err != nil {
+		t.Fatalf("failed to write c.txt: %v", err)
+	}
+	return gitDir
+}
+
+func TestRunDiff_PathFilterRelativePaths(t *testing.T) {
+	gitDir := setupGitRepoWithThreeChanges(t)
+
+	// 1. Relative exact match
+	var buf bytes.Buffer
+	if err := RunDiff(gitDir, &buf, "subdir/b.txt"); err != nil {
+		t.Fatalf("RunDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "subdir/b.txt") {
+		t.Errorf("expected subdir/b.txt in output, got: %s", buf.String())
+	}
+	if strings.Contains(buf.String(), "a.txt") || strings.Contains(buf.String(), "c.txt") {
+		t.Errorf("unexpected files in relative exact match output: %s", buf.String())
+	}
+
+	// 2. Relative prefix match
+	buf.Reset()
+	if err := RunDiff(gitDir, &buf, "subdir"); err != nil {
+		t.Fatalf("RunDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "subdir/b.txt") || !strings.Contains(buf.String(), "subdir/nested/c.txt") {
+		t.Errorf("expected subdir children in output, got: %s", buf.String())
+	}
+	if strings.Contains(buf.String(), "a.txt") {
+		t.Errorf("unexpected a.txt in relative prefix match output: %s", buf.String())
+	}
+}
+
+func TestRunDiff_PathFilterAbsolutePaths(t *testing.T) {
+	gitDir := setupGitRepoWithThreeChanges(t)
+
+	// 1. Absolute exact match
+	var buf bytes.Buffer
+	absB := filepath.Join(gitDir, "subdir", "b.txt")
+	if err := RunDiff(gitDir, &buf, absB); err != nil {
+		t.Fatalf("RunDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "subdir/b.txt") {
+		t.Errorf("expected subdir/b.txt in output, got: %s", buf.String())
+	}
+	if strings.Contains(buf.String(), "a.txt") {
+		t.Errorf("unexpected a.txt in absolute exact match output: %s", buf.String())
+	}
+
+	// 2. Absolute prefix match
+	buf.Reset()
+	absSubdir := filepath.Join(gitDir, "subdir")
+	if err := RunDiff(gitDir, &buf, absSubdir); err != nil {
+		t.Fatalf("RunDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "subdir/b.txt") || !strings.Contains(buf.String(), "subdir/nested/c.txt") {
+		t.Errorf("expected subdir children in output, got: %s", buf.String())
+	}
+
+	// 3. Absolute path outside baseDir returns clean diff (no error)
+	buf.Reset()
+	if err := RunDiff(gitDir, &buf, "/tmp/nonexistent-outside-dir"); err != nil {
+		t.Fatalf("RunDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Working tree is clean") {
+		t.Errorf("expected clean working tree message for outside path, got: %s", buf.String())
+	}
+}
+
+func TestRunDiff_PathFilterEmptyPath(t *testing.T) {
+	gitDir := setupGitRepoWithThreeChanges(t)
+
+	// Empty path slice returns all changes
+	var buf bytes.Buffer
+	if err := RunDiff(gitDir, &buf); err != nil {
+		t.Fatalf("RunDiff failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "a.txt") || !strings.Contains(buf.String(), "subdir/b.txt") || !strings.Contains(buf.String(), "subdir/nested/c.txt") {
+		t.Errorf("expected all 3 changes in unfiltered diff, got: %s", buf.String())
+	}
+
+	// Single empty string "" returns all changes
+	buf.Reset()
+	if err := RunDiff(gitDir, &buf, ""); err != nil {
+		t.Fatalf("RunDiff with empty string failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "a.txt") || !strings.Contains(buf.String(), "subdir/b.txt") {
+		t.Errorf("expected all changes with empty string path, got: %s", buf.String())
+	}
+}

@@ -269,7 +269,7 @@ func main() {
 
 		if sess != nil {
 			if err := tr.Step("diff computation", func() error {
-				return revert.RunShadowDiff(cwd, sess.UpperDir, os.Stdout)
+				return revert.RunShadowDiff(cwd, sess.UpperDir, os.Stdout, flags.Paths...)
 			}); err != nil {
 				printSubcommandError("diff", err)
 				os.Exit(1)
@@ -279,7 +279,7 @@ func main() {
 
 		// Fallback to git diff
 		if err := tr.Step("diff computation", func() error {
-			return revert.RunDiff(cwd, os.Stdout)
+			return revert.RunDiff(cwd, os.Stdout, flags.Paths...)
 		}); err != nil {
 			printSubcommandError("diff", err)
 			os.Exit(1)

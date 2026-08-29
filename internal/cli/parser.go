@@ -21,6 +21,7 @@ type RunFlags struct {
 type DiffApplyFlags struct {
 	Quiet bool
 	Yes   bool
+	Paths []string
 }
 
 // ParseRunFlags parses command-line arguments for 'safebox run', strictly requiring the '--' delimiter.
@@ -232,10 +233,11 @@ func ParseDiffApplyFlags(args []string, command string) (DiffApplyFlags, error) 
 	var (
 		quiet bool
 		yes   bool
+		paths []string
 	)
 
 	for _, arg := range args {
-		if arg == "--shadow" || strings.HasPrefix(arg, "--shadow=") || strings.Contains(arg, "--shadow") {
+		if arg == "--shadow" || strings.HasPrefix(arg, "--shadow=") {
 			return DiffApplyFlags{}, fmt.Errorf("safebox %s: unknown flag '--shadow'", command)
 		}
 		if arg == "--quiet" || arg == "-q" || arg == "--quiet=true" {
@@ -246,11 +248,19 @@ func ParseDiffApplyFlags(args []string, command string) (DiffApplyFlags, error) 
 			yes = true
 			continue
 		}
-		return DiffApplyFlags{}, fmt.Errorf("safebox %s: unknown flag %q", command, arg)
+		if strings.HasPrefix(arg, "-") {
+			return DiffApplyFlags{}, fmt.Errorf("safebox %s: unknown flag %q", command, arg)
+		}
+		if command == "diff" {
+			paths = append(paths, arg)
+		} else {
+			return DiffApplyFlags{}, fmt.Errorf("safebox %s: takes no positional arguments, got %q", command, arg)
+		}
 	}
 
 	return DiffApplyFlags{
 		Quiet: quiet,
 		Yes:   yes,
+		Paths: paths,
 	}, nil
 }

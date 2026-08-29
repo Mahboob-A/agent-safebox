@@ -161,12 +161,11 @@ func ParseChildFlags(args []string) (RunFlags, []string, error) {
 			continue
 		}
 		if arg == "--allow-path" {
-			if i+1 < len(args) {
-				allowPathsRO = append(allowPathsRO, args[i+1])
-				i += 2
-				continue
+			if i+1 >= len(args) {
+				return RunFlags{}, nil, errors.New("safebox: --allow-path requires a directory argument")
 			}
-			i++
+			allowPathsRO = append(allowPathsRO, args[i+1])
+			i += 2
 			continue
 		}
 
@@ -179,12 +178,11 @@ func ParseChildFlags(args []string) (RunFlags, []string, error) {
 			continue
 		}
 		if arg == "--allow-path-rw" {
-			if i+1 < len(args) {
-				allowPathsRW = append(allowPathsRW, args[i+1])
-				i += 2
-				continue
+			if i+1 >= len(args) {
+				return RunFlags{}, nil, errors.New("safebox: --allow-path-rw requires a directory argument")
 			}
-			i++
+			allowPathsRW = append(allowPathsRW, args[i+1])
+			i += 2
 			continue
 		}
 
@@ -194,12 +192,11 @@ func ParseChildFlags(args []string) (RunFlags, []string, error) {
 			continue
 		}
 		if arg == "--session-dir" {
-			if i+1 < len(args) {
-				sessionDir = args[i+1]
-				i += 2
-				continue
+			if i+1 >= len(args) {
+				return RunFlags{}, nil, errors.New("safebox: --session-dir requires a directory argument")
 			}
-			i++
+			sessionDir = args[i+1]
+			i += 2
 			continue
 		}
 

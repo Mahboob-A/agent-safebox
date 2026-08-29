@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -105,6 +106,19 @@ func TestParseChildFlagsLenient(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cmdArgs, []string{"echo", "hello"}) {
 		t.Errorf("expected cmdArgs %v, got %v", []string{"echo", "hello"}, cmdArgs)
+	}
+}
+
+func TestParseChildFlagsRejectsTrailingFlags(t *testing.T) {
+	for _, flag := range []string{"--allow-path", "--allow-path-rw", "--session-dir"} {
+		_, _, err := ParseChildFlags([]string{"--quiet", flag})
+		if err == nil {
+			t.Fatalf("expected error on trailing %s in ParseChildFlags, got nil", flag)
+		}
+		expectedErr := fmt.Sprintf("safebox: %s requires a directory argument", flag)
+		if err.Error() != expectedErr {
+			t.Errorf("expected %q, got %q", expectedErr, err.Error())
+		}
 	}
 }
 

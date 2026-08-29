@@ -151,12 +151,25 @@ func ApplyShadowChanges(lowerDir, upperDir string) error {
 					cleanupStaging(stagingDir)
 					return fmt.Errorf("safebox: failed to rename staged file %q to lower: %w", change.Path, err)
 				}
+			} else {
+				if dirFD, dErr := os.Open(filepath.Dir(lowerPath)); dErr == nil {
+					if sErr := dirFD.Sync(); sErr != nil {
+						fmt.Fprintf(os.Stderr, "[safebox] warning: failed to fsync directory %q: %v\n", filepath.Dir(lowerPath), sErr)
+					}
+					_ = dirFD.Close()
+				}
 			}
 
 		case ChangeDeleted:
 			if err := removeLower(lowerPath); err != nil {
 				cleanupStaging(stagingDir)
 				return fmt.Errorf("safebox: failed to remove deleted file %q from lower: %w", change.Path, err)
+			}
+			if dirFD, dErr := os.Open(filepath.Dir(lowerPath)); dErr == nil {
+				if sErr := dirFD.Sync(); sErr != nil {
+					fmt.Fprintf(os.Stderr, "[safebox] warning: failed to fsync directory %q: %v\n", filepath.Dir(lowerPath), sErr)
+				}
+				_ = dirFD.Close()
 			}
 		}
 	}

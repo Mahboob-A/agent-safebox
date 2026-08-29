@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"safebox/internal/cli"
 	"safebox/internal/isolation"
 	"safebox/internal/revert"
 	"safebox/internal/trace"
@@ -70,97 +71,6 @@ func printSubcommandError(subcommand string, err error) {
 	if hint := hintForSubcommand(subcommand, err); hint != "" {
 		fmt.Fprintf(os.Stderr, "  -> hint: %s\n", hint)
 	}
-}
-
-func hasShadowFlag(args []string) bool {
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--shadow=") || arg == "--shadow" {
-			return true
-		}
-	}
-	return false
-}
-
-func hasYesFlag(args []string) bool {
-	for _, arg := range args {
-		if arg == "--yes" || arg == "-y" || arg == "--yes=true" {
-			return true
-		}
-	}
-	return false
-}
-
-func hasQuietFlag(args []string) bool {
-	for _, arg := range args {
-		if arg == "--quiet" || arg == "-q" || arg == "--quiet=true" {
-			return true
-		}
-	}
-	return false
-}
-
-func parseAllowPathsAndFlags(args []string, requireDoubleDash bool) (allowPathsRO []string, allowPathsRW []string, sessionDir string, quiet bool, cmdArgs []string, err error) {
-	seenDoubleDash := false
-	i := 0
-	for i < len(args) {
-		arg := args[i]
-		if arg == "--" {
-			seenDoubleDash = true
-			for _, rest := range args[i+1:] {
-				if strings.HasPrefix(rest, "--allow-path=") || rest == "--allow-path" ||
-					strings.HasPrefix(rest, "--allow-path-rw=") || rest == "--allow-path-rw" {
-					return nil, nil, "", false, nil, errors.New("--allow-path must precede the -- delimiter; current invocation places it inside the wrapped command arguments")
-				}
-			}
-			cmdArgs = append(cmdArgs, args[i+1:]...)
-			break
-		}
-		if strings.HasPrefix(arg, "--allow-path=") {
-			pathVal := strings.TrimPrefix(arg, "--allow-path=")
-			if pathVal != "" {
-				allowPathsRO = append(allowPathsRO, pathVal)
-			}
-			i++
-			continue
-		}
-		if arg == "--allow-path" && i+1 < len(args) {
-			allowPathsRO = append(allowPathsRO, args[i+1])
-			i += 2
-			continue
-		}
-		if strings.HasPrefix(arg, "--allow-path-rw=") {
-			pathVal := strings.TrimPrefix(arg, "--allow-path-rw=")
-			if pathVal != "" {
-				allowPathsRW = append(allowPathsRW, pathVal)
-			}
-			i++
-			continue
-		}
-		if arg == "--allow-path-rw" && i+1 < len(args) {
-			allowPathsRW = append(allowPathsRW, args[i+1])
-			i += 2
-			continue
-		}
-		if strings.HasPrefix(arg, "--session-dir=") {
-			sessionDir = strings.TrimPrefix(arg, "--session-dir=")
-			i++
-			continue
-		}
-		if arg == "--quiet" || arg == "-q" || arg == "--quiet=true" {
-			quiet = true
-			i++
-			continue
-		}
-		if requireDoubleDash {
-			return nil, nil, "", false, nil, errors.New("safebox: 'run' requires '--' before the wrapped command (e.g. safebox run -- <cmd>)")
-		}
-		cmdArgs = append(cmdArgs, args[i:]...)
-		break
-	}
-	if requireDoubleDash && !seenDoubleDash {
-		return nil, nil, "", false, nil, errors.New("safebox: 'run' requires '--' before the wrapped command (e.g. safebox run -- <cmd>)")
-	}
-	return allowPathsRO, allowPathsRW, sessionDir, quiet, cmdArgs, nil
 }
 
 const usageText = `safebox <command> [arguments]
@@ -238,7 +148,7 @@ func main() {
 			printUsage()
 			os.Exit(1)
 		}
-		allowPathsRO, allowPathsRW, _, quiet, cmdArgs, err := parseAllowPathsAndFlags(args, true)
+		flags, cmdArgs, err := cli.ParseRunFlags(args)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n\n", ui.StyleDenied.Render("ERROR"), err)
 			printUsage()
@@ -250,7 +160,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		tr := trace.New(!quiet)
+		tr := trace.New(!flags.Quiet)
 		cwd, err := os.Getwd()
 		if err != nil {
 			printSubcommandError("run", fmt.Errorf("failed to get working directory: %w", err))
@@ -268,7 +178,7 @@ func main() {
 		}
 
 		if err := tr.Step("wrapped command execution", func() error {
-			return isolation.ReexecChild(allowPathsRO, allowPathsRW, sess.BaseDir, quiet, cmdArgs)
+			return isolation.ReexecChild(flags.AllowPathsRO, flags.AllowPathsRW, sess.BaseDir, flags.Quiet, cmdArgs)
 		}); err != nil {
 			var exitErr *osexec.ExitError
 			if errors.As(err, &exitErr) {
@@ -283,7 +193,7 @@ func main() {
 
 	case "__child__":
 		runtime.LockOSThread()
-		allowPathsRO, allowPathsRW, sessionDir, quiet, cmdArgs, err := parseAllowPathsAndFlags(args, false)
+		flags, cmdArgs, err := cli.ParseChildFlags(args)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s safebox __child__: %v\n", ui.StyleDenied.Render("ERROR"), err)
 			os.Exit(1)
@@ -293,12 +203,12 @@ func main() {
 			os.Exit(1)
 		}
 
-		tr := trace.NewChild(!quiet)
+		tr := trace.NewChild(!flags.Quiet)
 
-		if sessionDir != "" {
-			upperDir := filepath.Join(sessionDir, "upper")
-			workDir := filepath.Join(sessionDir, "work")
-			mergedDir := filepath.Join(sessionDir, "merged")
+		if flags.SessionDir != "" {
+			upperDir := filepath.Join(flags.SessionDir, "upper")
+			workDir := filepath.Join(flags.SessionDir, "work")
+			mergedDir := filepath.Join(flags.SessionDir, "merged")
 			lowerDir, err := os.Getwd()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%s safebox __child__: cannot get working directory: %v\n", ui.StyleDenied.Render("ERROR"), err)
@@ -318,7 +228,7 @@ func main() {
 		}
 
 		if err := tr.Step("landlock restrict", func() error {
-			return isolation.ApplyLandlock(allowPathsRO, allowPathsRW)
+			return isolation.ApplyLandlock(flags.AllowPathsRO, flags.AllowPathsRW)
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n", ui.StyleDenied.Render("ERROR"), err)
 			if hint := hintFor(err, cmdArgs); hint != "" {
@@ -336,13 +246,13 @@ func main() {
 		}
 
 	case "diff":
-		if hasShadowFlag(args) {
-			fmt.Fprintf(os.Stderr, "%s safebox diff: unknown flag '--shadow'\n\n", ui.StyleDenied.Render("ERROR"))
+		flags, err := cli.ParseDiffApplyFlags(args, "diff")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n\n", ui.StyleDenied.Render("ERROR"), err)
 			printUsage()
 			os.Exit(2)
 		}
-		quiet := hasQuietFlag(args)
-		tr := trace.New(!quiet)
+		tr := trace.New(!flags.Quiet)
 		cwd, err := os.Getwd()
 		if err != nil {
 			printSubcommandError("diff", fmt.Errorf("failed to get working directory: %w", err))
@@ -376,9 +286,14 @@ func main() {
 		}
 
 	case "revert":
-		quiet := hasQuietFlag(args)
-		tr := trace.New(!quiet)
-		force := hasYesFlag(args)
+		flags, err := cli.ParseDiffApplyFlags(args, "revert")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n\n", ui.StyleDenied.Render("ERROR"), err)
+			printUsage()
+			os.Exit(2)
+		}
+		tr := trace.New(!flags.Quiet)
+		force := flags.Yes
 		cwd, err := os.Getwd()
 		if err != nil {
 			printSubcommandError("revert", fmt.Errorf("failed to get working directory: %w", err))
@@ -424,13 +339,13 @@ func main() {
 		}
 
 	case "apply":
-		if hasShadowFlag(args) {
-			fmt.Fprintf(os.Stderr, "%s safebox apply: unknown flag '--shadow'\n\n", ui.StyleDenied.Render("ERROR"))
+		flags, err := cli.ParseDiffApplyFlags(args, "apply")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n\n", ui.StyleDenied.Render("ERROR"), err)
 			printUsage()
 			os.Exit(2)
 		}
-		quiet := hasQuietFlag(args)
-		tr := trace.New(!quiet)
+		tr := trace.New(!flags.Quiet)
 		cwd, err := os.Getwd()
 		if err != nil {
 			printSubcommandError("apply", fmt.Errorf("failed to get working directory: %w", err))
@@ -447,7 +362,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		force := hasYesFlag(args)
+		force := flags.Yes
 		if !force {
 			fmt.Fprintf(os.Stdout, "%s Apply shadow changes to working directory? [y/N]: ", ui.StyleMeta.Render("PROMPT"))
 			var response string

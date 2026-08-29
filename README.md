@@ -114,7 +114,7 @@ safebox <command> [arguments]
 | Command | Arguments / Flags | Description |
 | :--- | :--- | :--- |
 | `run` | `[--quiet \| -q] [--allow-path=<dir> ...] [--allow-path-rw=<dir> ...] [--probe] -- <cmd...>` | Execute a command inside unprivileged namespaces with OverlayFS and Landlock containment |
-| `diff` | `[--quiet \| -q]` | Display colored status (`+ [ADDED]`, `~ [MODIFIED]`, `- [DELETED]`) for active session or git workspace |
+| `diff` | `[--quiet \| -q] [paths...]` | Display colored status (`+ [ADDED]`, `~ [MODIFIED]`, `- [DELETED]`) for active session or git workspace (optionally filtered by paths) |
 | `revert` | `[--quiet \| -q] [--yes \| -y]` | Discard active OverlayFS session changes or restore git working tree |
 | `apply` | `[--quiet \| -q] [--yes \| -y]` | Apply sandbox session modifications back to the host working directory |
 | `help` | `-h`, `--help` | Display CLI usage documentation |
@@ -166,6 +166,13 @@ Use `--quiet` (`-q`) to suppress setup traces and cleanly consume command stdout
 # Output contains only the wrapped command's stdout
 VERSION=$(safebox run --quiet --allow-path=/root/.local/bin -- /root/.local/bin/agy --version)
 echo "Agent version: $VERSION"
+```
+
+### 5. Inspecting Security Policies via `--probe`
+Inspect effective Landlock allow-lists and resolved binaries without starting namespaces or executing commands:
+
+```bash
+safebox run --probe --allow-path=$HOME/.local/bin --allow-path-rw=$HOME/.gemini -- agy
 ```
 
 ---

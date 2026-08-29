@@ -279,3 +279,134 @@ func TestApplyShadowChangesEXDEVCrossDeviceFallback(t *testing.T) {
 		t.Error("expected isEXDEV(nil) to be false")
 	}
 }
+
+func TestRemoveLower_Direct(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Regular file deletion
+	regFile := filepath.Join(tmpDir, "regular.txt")
+	if err := os.WriteFile(regFile, []byte("data"), 0600); err != nil {
+		t.Fatalf("failed to write regular file: %v", err)
+	}
+	if err := removeLower(regFile); err != nil {
+		t.Errorf("removeLower on regular file failed: %v", err)
+	}
+	if _, err := os.Stat(regFile); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected regular file to be deleted, err: %v", err)
+	}
+
+	// 2. Directory tree recursive deletion
+	treeDir := filepath.Join(tmpDir, "tree", "sub")
+	if err := os.MkdirAll(treeDir, 0700); err != nil {
+		t.Fatalf("failed to create tree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(treeDir, "leaf.txt"), []byte("leaf"), 0600); err != nil {
+		t.Fatalf("failed to write leaf: %v", err)
+	}
+	if err := removeLower(filepath.Join(tmpDir, "tree")); err != nil {
+		t.Errorf("removeLower on directory tree failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "tree")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected tree to be deleted, err: %v", err)
+	}
+
+	// 3. Non-existent path returns nil
+	if err := removeLower(filepath.Join(tmpDir, "does-not-exist-123")); err != nil {
+		t.Errorf("expected removeLower on non-existent path to return nil, got: %v", err)
+	}
+}
+
+func TestApplyShadowChangesRemovesDirectoriesRecursively_Subprocess(t *testing.T) {
+	if os.Getenv("GO_WANT_DIR_WHITEOUT_HELPER_PROCESS") == "1" {
+		lowerDir := os.Getenv("SAFEBOX_TEST_LOWER")
+		upperDir := os.Getenv("SAFEBOX_TEST_UPPER")
+		workDir := os.Getenv("SAFEBOX_TEST_WORK")
+		mergedDir := os.Getenv("SAFEBOX_TEST_MERGED")
+
+		opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerDir, upperDir, workDir)
+		if err := syscall.Mount("overlay", mergedDir, "overlay", 0, opts); err != nil {
+			os.Stderr.WriteString("mount error: " + err.Error() + "\n")
+			os.Exit(1)
+		}
+
+		// Delete directory tree inside overlay
+		if err := os.RemoveAll(filepath.Join(mergedDir, "tree_to_delete")); err != nil {
+			os.Stderr.WriteString("remove tree error: " + err.Error() + "\n")
+			os.Exit(2)
+		}
+
+		os.Exit(0)
+	}
+
+	tmpDir := t.TempDir()
+	lowerDir := filepath.Join(tmpDir, "lower")
+	upperDir := filepath.Join(tmpDir, "upper")
+	workDir := filepath.Join(tmpDir, "work")
+	mergedDir := filepath.Join(tmpDir, "merged")
+
+	for _, d := range []string{lowerDir, upperDir, workDir, mergedDir} {
+		if err := os.MkdirAll(d, 0700); err != nil {
+			t.Fatalf("failed to create dir %s: %v", d, err)
+		}
+	}
+
+	// Initial tree in lower
+	targetDir := filepath.Join(lowerDir, "tree_to_delete", "nested")
+	if err := os.MkdirAll(targetDir, 0700); err != nil {
+		t.Fatalf("failed to create nested lower dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "file.txt"), []byte("nested content"), 0600); err != nil {
+		t.Fatalf("failed to write nested file: %v", err)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestApplyShadowChangesRemovesDirectoriesRecursively_Subprocess")
+	cmd.Env = append(os.Environ(),
+		"GO_WANT_DIR_WHITEOUT_HELPER_PROCESS=1",
+		"SAFEBOX_TEST_LOWER="+lowerDir,
+		"SAFEBOX_TEST_UPPER="+upperDir,
+		"SAFEBOX_TEST_WORK="+workDir,
+		"SAFEBOX_TEST_MERGED="+mergedDir,
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS,
+		UidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
+		},
+		GidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getgid(), Size: 1},
+		},
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helper subprocess failed: %v, output: %s", err, string(out))
+	}
+
+	// Apply shadow changes
+	if err := ApplyShadowChanges(lowerDir, upperDir); err != nil {
+		t.Fatalf("ApplyShadowChanges failed: %v", err)
+	}
+
+	// Verify lowerDir tree_to_delete is completely gone
+	if _, err := os.Stat(filepath.Join(lowerDir, "tree_to_delete")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected tree_to_delete to be completely removed from lowerDir, err: %v", err)
+	}
+}
+
+func TestApplyShadowChangesNonExistentWhiteoutIgnored(t *testing.T) {
+	tmpDir := t.TempDir()
+	lowerDir := filepath.Join(tmpDir, "lower")
+	upperDir := filepath.Join(tmpDir, "upper")
+
+	if err := os.MkdirAll(lowerDir, 0700); err != nil {
+		t.Fatalf("failed to create lowerDir: %v", err)
+	}
+	if err := os.MkdirAll(upperDir, 0700); err != nil {
+		t.Fatalf("failed to create upperDir: %v", err)
+	}
+
+	// Empty changes or non-existent whiteout target apply cleanly
+	if err := ApplyShadowChanges(lowerDir, upperDir); err != nil {
+		t.Errorf("expected empty upperDir apply to return nil, got: %v", err)
+	}
+}

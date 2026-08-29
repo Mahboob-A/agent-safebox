@@ -20,17 +20,34 @@ func hintFor(err error, cmdArgs []string) string {
 	if err == nil {
 		return ""
 	}
-	errStr := err.Error()
-	if strings.Contains(strings.ToLower(errStr), "permission denied") || errors.Is(err, syscall.EACCES) {
-		if len(cmdArgs) > 0 {
-			bin := cmdArgs[0]
-			if strings.Contains(bin, "/") {
-				dir := filepath.Dir(bin)
-				return fmt.Sprintf("rerun with --allow-path=%s", dir)
-			}
-			return "rerun with --allow-path=<dir>"
-		}
+
+	binPath := ""
+	if len(cmdArgs) > 0 {
+		binPath = cmdArgs[0]
 	}
+
+	var landlockErr *isolation.ErrLandlockDenied
+	if errors.As(err, &landlockErr) {
+		return landlockErr.Hint(binPath)
+	}
+
+	var execDeniedErr *isolation.ErrExecDenied
+	if errors.As(err, &execDeniedErr) {
+		return execDeniedErr.Hint()
+	}
+
+	var notFoundErr *isolation.ErrExecNotFound
+	if errors.As(err, &notFoundErr) {
+		return notFoundErr.Hint()
+	}
+
+	if errors.Is(err, syscall.EACCES) {
+		if binPath != "" && strings.Contains(binPath, "/") {
+			return fmt.Sprintf("rerun with --allow-path=%s", filepath.Dir(binPath))
+		}
+		return "rerun with --allow-path=<dir>"
+	}
+
 	return ""
 }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	osexec "os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 
@@ -24,7 +25,10 @@ func RunShim(args []string, tr *trace.Tracer) error {
 
 	binPath, err := osexec.LookPath(args[0])
 	if err != nil {
-		return fmt.Errorf("safebox: %q not found: %w", args[0], err)
+		if errors.Is(err, syscall.EACCES) || errors.Is(err, os.ErrPermission) {
+			return &ErrExecDenied{Bin: args[0], Path: filepath.Dir(args[0])}
+		}
+		return &ErrExecNotFound{Bin: args[0]}
 	}
 
 	sigCh := make(chan os.Signal, 16)
@@ -42,6 +46,9 @@ func RunShim(args []string, tr *trace.Tracer) error {
 			return forkErr
 		})
 		if err != nil {
+			if errors.Is(forkErr, syscall.EACCES) || errors.Is(forkErr, os.ErrPermission) {
+				return &ErrExecDenied{Bin: binPath, Path: filepath.Dir(binPath)}
+			}
 			return fmt.Errorf("safebox: fork/exec failed: %w", err)
 		}
 	} else {
@@ -50,6 +57,9 @@ func RunShim(args []string, tr *trace.Tracer) error {
 			Files: []uintptr{0, 1, 2},
 		})
 		if err != nil {
+			if errors.Is(err, syscall.EACCES) || errors.Is(err, os.ErrPermission) {
+				return &ErrExecDenied{Bin: binPath, Path: filepath.Dir(binPath)}
+			}
 			return fmt.Errorf("safebox: fork/exec failed: %w", err)
 		}
 	}

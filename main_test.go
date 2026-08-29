@@ -250,6 +250,65 @@ func TestCLIActionableHintOnDenial(t *testing.T) {
 	}
 }
 
+func TestCLIHintForBinaryInUnallowedDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("failed to create bin dir: %v", err)
+	}
+	fakeAgy := filepath.Join(binDir, "agy")
+	if err := os.WriteFile(fakeAgy, []byte("#!/bin/sh\necho agy_ok\n"), 0755); err != nil {
+		t.Fatalf("failed to write fake binary: %v", err)
+	}
+
+	out, err := runCLI("run", "--", fakeAgy)
+	if err == nil {
+		t.Fatalf("expected failure when running binary outside allow-list, got success: %s", string(out))
+	}
+	expectedHint := "hint: rerun with --allow-path=" + binDir
+	if !strings.Contains(string(out), expectedHint) {
+		t.Errorf("expected output to contain %q, got: %s", expectedHint, string(out))
+	}
+}
+
+func TestCLIHintForStateDirWriteDenied(t *testing.T) {
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	stateDir := filepath.Join(tmpDir, "state")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("failed to create bin dir: %v", err)
+	}
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatalf("failed to create state dir: %v", err)
+	}
+	agentScript := filepath.Join(binDir, "agent.sh")
+	scriptBody := fmt.Sprintf("#!/bin/sh\necho data > %s/log.txt\n", stateDir)
+	if err := os.WriteFile(agentScript, []byte(scriptBody), 0755); err != nil {
+		t.Fatalf("failed to write agent script: %v", err)
+	}
+
+	out, err := runCLI("run", "--allow-path="+binDir, "--", agentScript)
+	if err == nil {
+		t.Fatalf("expected write to state dir outside allow-path-rw to fail, got success: %s", string(out))
+	}
+	if !strings.Contains(string(out), "Permission denied") && !strings.Contains(string(out), "permission denied") {
+		t.Errorf("expected permission denied in output, got: %s", string(out))
+	}
+}
+
+func TestCLIHintForMissingExecutable(t *testing.T) {
+	tmpDir := t.TempDir()
+	missingPath := filepath.Join(tmpDir, "tools", "missing_cmd")
+	out, err := runCLI("run", "--", missingPath)
+	if err == nil {
+		t.Fatalf("expected failure for missing executable, got success: %s", string(out))
+	}
+	expectedHint := "hint: rerun with --allow-path=" + filepath.Dir(missingPath)
+	if !strings.Contains(string(out), expectedHint) {
+		t.Errorf("expected output to contain %q, got: %s", expectedHint, string(out))
+	}
+}
+
 func TestCLIRunAllowPathAfterDoubleDashFails(t *testing.T) {
 	out, err := runCLI("run", "--", "--allow-path=/tmp", "--", "/bin/true")
 	if err == nil {
@@ -1310,8 +1369,12 @@ func TestCLIBenchmarkStartupLatency(t *testing.T) {
 
 	t.Logf("Startup latency over %d runs: avg=%v p50=%v p95=%v", iterations, avgLatency, p50, p95)
 
-	// NFR3 sets 50ms startup overhead target
-	if avgLatency > 50*time.Millisecond {
-		t.Errorf("average startup latency %v exceeds 50ms budget (NFR3)", avgLatency)
+	// NFR3 sets 50ms startup overhead target (relaxed under -race instrumentation)
+	budget := 50 * time.Millisecond
+	if isRaceEnabled {
+		budget = 100 * time.Millisecond
+	}
+	if avgLatency > budget {
+		t.Errorf("average startup latency %v exceeds %v budget (NFR3)", avgLatency, budget)
 	}
 }

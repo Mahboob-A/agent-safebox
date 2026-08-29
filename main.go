@@ -293,7 +293,7 @@ func main() {
 			os.Exit(2)
 		}
 		tr := trace.New(!flags.Quiet)
-		force := flags.Yes
+		yes := flags.Yes
 		cwd, err := os.Getwd()
 		if err != nil {
 			printSubcommandError("revert", fmt.Errorf("failed to get working directory: %w", err))
@@ -309,7 +309,7 @@ func main() {
 		})
 
 		if sess != nil {
-			if !force {
+			if !yes {
 				fmt.Fprintf(os.Stdout, "%s Discard active overlay session changes? [y/N]: ", ui.StyleMeta.Render("PROMPT"))
 				var response string
 				if _, err := fmt.Fscanln(os.Stdin, &response); err != nil || (response != "y" && response != "yes" && response != "Y" && response != "YES") {
@@ -329,7 +329,7 @@ func main() {
 
 		// Fallback to git revert
 		if err := tr.Step("git revert", func() error {
-			return revert.Revert(cwd, force, os.Stdin, os.Stdout)
+			return revert.Revert(cwd, yes, os.Stdin, os.Stdout)
 		}); err != nil {
 			if errors.Is(err, revert.ErrRevertCancelled) {
 				os.Exit(0)
@@ -362,8 +362,8 @@ func main() {
 			os.Exit(1)
 		}
 
-		force := flags.Yes
-		if !force {
+		yes := flags.Yes
+		if !yes {
 			fmt.Fprintf(os.Stdout, "%s Apply shadow changes to working directory? [y/N]: ", ui.StyleMeta.Render("PROMPT"))
 			var response string
 			if _, err := fmt.Fscanln(os.Stdin, &response); err != nil || (response != "y" && response != "yes" && response != "Y" && response != "YES") {

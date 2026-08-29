@@ -50,6 +50,68 @@ func TestCLIRunEmptyArgs(t *testing.T) {
 	}
 }
 
+func TestCLIRunRequiresDoubleDash(t *testing.T) {
+	cmd := exec.Command(testBinaryPath, "run", "python3", "hello.py")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected error for run without '--', got success with output: %s", string(out))
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+		t.Fatalf("expected exit code 2 for missing '--', got err: %v", err)
+	}
+	expectedMsg := "safebox: 'run' requires '--' before the wrapped command (e.g. safebox run -- <cmd>)"
+	if !strings.Contains(string(out), expectedMsg) {
+		t.Fatalf("expected output to contain %q, got: %s", expectedMsg, string(out))
+	}
+}
+
+func TestCLIRunDoubleDashAccepted(t *testing.T) {
+	out, err := runCLI("run", "--", "echo", "hello")
+	if err != nil {
+		t.Fatalf("safebox run -- echo hello failed: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "hello") {
+		t.Fatalf("expected output to contain 'hello', got: %s", string(out))
+	}
+}
+
+func TestCLIRunAllowPathBeforeDoubleDash(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "test.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\necho ok\n"), 0755); err != nil {
+		t.Fatalf("failed to write script: %v", err)
+	}
+	out, err := runCLI("run", "--allow-path="+tmpDir, "--", scriptPath)
+	if err != nil {
+		t.Fatalf("safebox run with --allow-path before -- failed: %v, output: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "ok") {
+		t.Fatalf("expected output to contain 'ok', got: %s", string(out))
+	}
+}
+
+func TestCLIRunAllowPathMissingDoubleDash(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "test.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\necho ok\n"), 0755); err != nil {
+		t.Fatalf("failed to write script: %v", err)
+	}
+	cmd := exec.Command(testBinaryPath, "run", "--allow-path="+tmpDir, scriptPath)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected error for run with --allow-path but missing '--', got success with output: %s", string(out))
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+		t.Fatalf("expected exit code 2 for missing '--', got err: %v", err)
+	}
+	expectedMsg := "safebox: 'run' requires '--' before the wrapped command (e.g. safebox run -- <cmd>)"
+	if !strings.Contains(string(out), expectedMsg) {
+		t.Fatalf("expected output to contain %q, got: %s", expectedMsg, string(out))
+	}
+}
+
 func TestCLIRunUIDMapping(t *testing.T) {
 	stdout, stderr, err := runCLISplit("", "run", "--", "id", "-u")
 	if err != nil {

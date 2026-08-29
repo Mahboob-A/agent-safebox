@@ -397,8 +397,17 @@ func TestCLIHelpCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("help command failed: %v, output: %s", err, string(out))
 	}
-	if !strings.Contains(string(out), "Usage: safebox") {
-		t.Errorf("expected usage header in help output, got: %s", string(out))
+	for _, expected := range []string{
+		"safebox <command> [arguments]",
+		"Commands:",
+		"--allow-path-rw",
+		"Where safebox stores state:",
+		"Running a coding agent:",
+		"On permission denial:",
+	} {
+		if !strings.Contains(string(out), expected) {
+			t.Errorf("expected %q in help output, got: %s", expected, string(out))
+		}
 	}
 }
 

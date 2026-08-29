@@ -113,10 +113,10 @@ safebox <command> [arguments]
 
 | Command | Arguments / Flags | Description |
 | :--- | :--- | :--- |
-| `run` | `[--quiet \| -q] [--allow-path=<dir> ...] [--] <cmd...>` | Execute a command inside unprivileged namespaces with OverlayFS and Landlock containment |
-| `diff` | `[--quiet \| -q] [--shadow=<dir>]` | Display colored status (`+ [ADDED]`, `~ [MODIFIED]`, `- [DELETED]`) for active session or git workspace |
+| `run` | `[--quiet \| -q] [--allow-path=<dir> ...] [--allow-path-rw=<dir> ...] [--probe] -- <cmd...>` | Execute a command inside unprivileged namespaces with OverlayFS and Landlock containment |
+| `diff` | `[--quiet \| -q]` | Display colored status (`+ [ADDED]`, `~ [MODIFIED]`, `- [DELETED]`) for active session or git workspace |
 | `revert` | `[--quiet \| -q] [--yes \| -y]` | Discard active OverlayFS session changes or restore git working tree |
-| `apply` | `[--quiet \| -q] [--shadow=<dir>] [--yes \| -y]` | Apply shadow OverlayFS modifications back to the host working directory |
+| `apply` | `[--quiet \| -q] [--yes \| -y]` | Apply sandbox session modifications back to the host working directory |
 | `help` | `-h`, `--help` | Display CLI usage documentation |
 
 ---
@@ -130,17 +130,17 @@ Execute an untrusted build script inside the sandbox. Network calls and writes o
 safebox run -- python3 generate_assets.py
 ```
 
-### 2. Autonomous AI Coding Agents with External Tool Paths
-Run an autonomous coding agent (such as `agy`) with tool paths explicitly permitted via `--allow-path`:
+### 2. Autonomous AI Coding Agents with External Tool and State Paths
+Run an autonomous coding agent (such as `agy`) with tool binary directories granted read+execute and agent state directories granted read+write:
 
 ```bash
-# Execution without --allow-path produces an actionable hint:
+# Execution without required permissions produces an actionable hint:
 safebox run -- /root/.local/bin/agy --version
 # ERROR safebox: exec failed: permission denied
 #   -> hint: rerun with --allow-path=/root/.local/bin
 
-# Grant read/exec access to the tool path:
-safebox run --allow-path=/root/.local/bin -- /root/.local/bin/agy "implement user login"
+# Grant read/exec access to the tool path and read/write to its state directory:
+safebox run --allow-path=$HOME/.local/bin --allow-path-rw=$HOME/.gemini -- agy "implement user login"
 ```
 
 ### 3. Reviewing & Applying AI Agent Mutations

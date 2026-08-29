@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -162,14 +163,62 @@ func parseAllowPathsAndFlags(args []string, requireDoubleDash bool) (allowPathsR
 	return allowPathsRO, allowPathsRW, sessionDir, quiet, cmdArgs, nil
 }
 
+const usageText = `safebox <command> [arguments]
+
+Run an untrusted command or AI coding agent inside an unprivileged Linux
+sandbox with Landlock filesystem containment and OverlayFS change capture.
+
+Commands:
+  run    [--quiet|-q] [--allow-path=<dir> ...] [--allow-path-rw=<dir> ...]
+         [--probe] -- <cmd> [args...]
+         Execute <cmd> inside the sandbox. The '--' delimiter is required.
+         --allow-path grants read+execute access to <dir>.
+         --allow-path-rw grants read+write access to <dir>.
+         --probe prints the effective policy and exits without executing.
+
+  diff   [--quiet|-q]
+         Show what changed in the active sandbox session.
+
+  revert [--quiet|-q] [--yes|-y]
+         Discard the active sandbox session without applying changes.
+
+  apply  [--quiet|-q] [--yes|-y]
+         Apply sandbox session changes to the host working directory.
+
+  help   Show this help text.
+
+Where safebox stores state:
+  Sessions:    $SAFEBOX_SESSION_ROOT (default: $TMPDIR/safebox/sessions)
+  Persistent:  v0.4: per-agent state under ~/.local/share/safebox/agents/<tool>/
+  Profiles:    v0.4: ~/.config/safebox/profiles/<tool>.toml
+
+Running a coding agent:
+  Every agent stores its config, logs, and identity under a directory in
+  your home folder. To run the agent, grant safebox access to its
+  binary (read+execute) and its state dir (read+write):
+
+    safebox run --allow-path=<binary_dir> --allow-path-rw=<state_dir> -- <bin> ...
+
+  Examples (use the paths that match your install):
+
+    safebox run --allow-path=/usr/local/bin --allow-path-rw=$HOME/.claude -- claude "task"
+    safebox run --allow-path=$HOME/.local/bin --allow-path-rw=$HOME/.gemini -- agy "task"
+    safebox run --allow-path=$HOME/.local/bin --allow-path-rw=$HOME/.codex -- codex "task"
+    safebox run --allow-path=$HOME/.local/bin --allow-path-rw=$HOME/.puku-cli -- puku "task"
+
+  In v0.4, safebox will auto-detect these paths from built-in profiles so
+  you only need: safebox run -- <bin> "task".
+
+On permission denial:
+  safebox prints the exact --allow-path or --allow-path-rw flag needed.
+  Read the hint, copy-paste the flag into your command, retry.`
+
 func printUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: safebox <command> [arguments]\n\n")
-	fmt.Fprintf(os.Stderr, "Commands:\n")
-	fmt.Fprintf(os.Stderr, "  run [--quiet|-q] [--allow-path=<dir> ...] [--allow-path-rw=<dir> ...] -- <cmd...>  Run a command inside the sandbox\n")
-	fmt.Fprintf(os.Stderr, "  diff [--quiet|-q]                                        Show modified, added, and deleted files\n")
-	fmt.Fprintf(os.Stderr, "  revert [--quiet|-q] [--yes|-y]                           Discard session or working tree changes\n")
-	fmt.Fprintf(os.Stderr, "  apply [--quiet|-q] [--yes|-y]                            Apply session changes to working directory\n")
-	fmt.Fprintf(os.Stderr, "  help                                                     Show help documentation\n")
+	fmt.Fprintln(os.Stderr, usageText)
+}
+
+func printUsageTo(w io.Writer) {
+	fmt.Fprintln(w, usageText)
 }
 
 func main() {
@@ -421,7 +470,7 @@ func main() {
 		fmt.Fprintf(os.Stdout, "%s\n", ui.StyleAllowed.Render("Shadow changes applied to working directory."))
 
 	case "help", "-h", "--help":
-		printUsage()
+		printUsageTo(os.Stdout)
 		os.Exit(0)
 
 	default:

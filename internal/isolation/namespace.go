@@ -24,9 +24,9 @@ func DefaultSysProcAttr() *syscall.SysProcAttr {
 }
 
 // ReexecChild re-executes the current binary (/proc/self/exe) with the hidden
-// "__child__" subcommand, forwarding allow-path flags, session configuration,
+// "__child__" subcommand, forwarding allow-path (RO and RW) flags, session configuration,
 // quiet mode, and command arguments inside fresh unprivileged user, mount, network, IPC, UTS, and PID namespaces.
-func ReexecChild(allowPaths []string, sessionDir string, quiet bool, cmdArgs []string) error {
+func ReexecChild(allowPathsRO, allowPathsRW []string, sessionDir string, quiet bool, cmdArgs []string) error {
 	exePath, err := os.Executable()
 	if err != nil {
 		exePath = "/proc/self/exe"
@@ -40,8 +40,11 @@ func ReexecChild(allowPaths []string, sessionDir string, quiet bool, cmdArgs []s
 	if sessionDir != "" {
 		childArgs = append(childArgs, "--session-dir="+sessionDir)
 	}
-	for _, p := range allowPaths {
+	for _, p := range allowPathsRO {
 		childArgs = append(childArgs, "--allow-path="+p)
+	}
+	for _, p := range allowPathsRW {
+		childArgs = append(childArgs, "--allow-path-rw="+p)
 	}
 	childArgs = append(childArgs, cmdArgs...)
 

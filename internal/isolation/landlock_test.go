@@ -30,7 +30,7 @@ func TestFilterExisting(t *testing.T) {
 
 func TestApplyLandlockSubprocess(t *testing.T) {
 	if os.Getenv("TEST_LANDLOCK_CHILD") == "1" {
-		if err := ApplyLandlock(); err != nil {
+		if err := ApplyLandlock(nil, nil); err != nil {
 			os.Exit(2)
 		}
 		// Verify reading /root is denied specifically with EACCES
@@ -84,7 +84,7 @@ func TestApplyLandlockSubprocess(t *testing.T) {
 
 func TestApplyLandlockCustomAllowPathSubprocess(t *testing.T) {
 	if customPath := os.Getenv("TEST_LANDLOCK_CUSTOM_DIR"); customPath != "" {
-		if err := ApplyLandlock(customPath); err != nil {
+		if err := ApplyLandlock([]string{customPath}, nil); err != nil {
 			os.Exit(2)
 		}
 		// Verify reading customPath succeeds
@@ -107,5 +107,37 @@ func TestApplyLandlockCustomAllowPathSubprocess(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("landlock custom allow path subprocess test failed: %v, output: %s", err, string(out))
+	}
+}
+
+func TestLandlockAllowPathRW(t *testing.T) {
+	if rwDir := os.Getenv("TEST_LANDLOCK_RW_DIR"); rwDir != "" {
+		if err := ApplyLandlock(nil, []string{rwDir}); err != nil {
+			os.Exit(2)
+		}
+		// Write to RW dir should succeed
+		writeFile := filepath.Join(rwDir, "written.txt")
+		if err := os.WriteFile(writeFile, []byte("rw_ok"), 0600); err != nil {
+			os.Exit(3)
+		}
+		// Write to /tmp/unallowed_probe should fail with EACCES (if not cwd)
+		unallowedFile := filepath.Join("/tmp", "safebox_unallowed_probe_"+os.Getenv("TEST_PID"))
+		if err := os.WriteFile(unallowedFile, []byte("fail"), 0600); err == nil {
+			os.Remove(unallowedFile)
+			os.Exit(4)
+		}
+		os.Exit(0)
+	}
+
+	tmpDir := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=TestLandlockAllowPathRW")
+	cmd.Env = append(os.Environ(), "TEST_LANDLOCK_RW_DIR="+tmpDir, "TEST_PID=landlock_rw_test")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("landlock allow-path-rw test failed: %v, output: %s", err, string(out))
+	}
+	writtenContent, err := os.ReadFile(filepath.Join(tmpDir, "written.txt"))
+	if err != nil || string(writtenContent) != "rw_ok" {
+		t.Fatalf("expected written file with content 'rw_ok', got err: %v, content: %q", err, string(writtenContent))
 	}
 }

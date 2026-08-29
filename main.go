@@ -84,7 +84,7 @@ func hasQuietFlag(args []string) bool {
 	return false
 }
 
-func parseAllowPathsAndFlags(args []string, requireDoubleDash bool) (allowPaths []string, sessionDir string, quiet bool, cmdArgs []string, err error) {
+func parseAllowPathsAndFlags(args []string, requireDoubleDash bool) (allowPathsRO []string, allowPathsRW []string, sessionDir string, quiet bool, cmdArgs []string, err error) {
 	seenDoubleDash := false
 	i := 0
 	for i < len(args) {
@@ -92,8 +92,9 @@ func parseAllowPathsAndFlags(args []string, requireDoubleDash bool) (allowPaths 
 		if arg == "--" {
 			seenDoubleDash = true
 			for _, rest := range args[i+1:] {
-				if strings.HasPrefix(rest, "--allow-path=") || rest == "--allow-path" {
-					return nil, "", false, nil, errors.New("--allow-path must precede the -- delimiter; current invocation places it inside the wrapped command arguments")
+				if strings.HasPrefix(rest, "--allow-path=") || rest == "--allow-path" ||
+					strings.HasPrefix(rest, "--allow-path-rw=") || rest == "--allow-path-rw" {
+					return nil, nil, "", false, nil, errors.New("--allow-path must precede the -- delimiter; current invocation places it inside the wrapped command arguments")
 				}
 			}
 			cmdArgs = append(cmdArgs, args[i+1:]...)
@@ -102,13 +103,26 @@ func parseAllowPathsAndFlags(args []string, requireDoubleDash bool) (allowPaths 
 		if strings.HasPrefix(arg, "--allow-path=") {
 			pathVal := strings.TrimPrefix(arg, "--allow-path=")
 			if pathVal != "" {
-				allowPaths = append(allowPaths, pathVal)
+				allowPathsRO = append(allowPathsRO, pathVal)
 			}
 			i++
 			continue
 		}
 		if arg == "--allow-path" && i+1 < len(args) {
-			allowPaths = append(allowPaths, args[i+1])
+			allowPathsRO = append(allowPathsRO, args[i+1])
+			i += 2
+			continue
+		}
+		if strings.HasPrefix(arg, "--allow-path-rw=") {
+			pathVal := strings.TrimPrefix(arg, "--allow-path-rw=")
+			if pathVal != "" {
+				allowPathsRW = append(allowPathsRW, pathVal)
+			}
+			i++
+			continue
+		}
+		if arg == "--allow-path-rw" && i+1 < len(args) {
+			allowPathsRW = append(allowPathsRW, args[i+1])
 			i += 2
 			continue
 		}
@@ -123,21 +137,21 @@ func parseAllowPathsAndFlags(args []string, requireDoubleDash bool) (allowPaths 
 			continue
 		}
 		if requireDoubleDash {
-			return nil, "", false, nil, errors.New("safebox: 'run' requires '--' before the wrapped command (e.g. safebox run -- <cmd>)")
+			return nil, nil, "", false, nil, errors.New("safebox: 'run' requires '--' before the wrapped command (e.g. safebox run -- <cmd>)")
 		}
 		cmdArgs = append(cmdArgs, args[i:]...)
 		break
 	}
 	if requireDoubleDash && !seenDoubleDash {
-		return nil, "", false, nil, errors.New("safebox: 'run' requires '--' before the wrapped command (e.g. safebox run -- <cmd>)")
+		return nil, nil, "", false, nil, errors.New("safebox: 'run' requires '--' before the wrapped command (e.g. safebox run -- <cmd>)")
 	}
-	return allowPaths, sessionDir, quiet, cmdArgs, nil
+	return allowPathsRO, allowPathsRW, sessionDir, quiet, cmdArgs, nil
 }
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage: safebox <command> [arguments]\n\n")
 	fmt.Fprintf(os.Stderr, "Commands:\n")
-	fmt.Fprintf(os.Stderr, "  run [--quiet|-q] [--allow-path=<dir> ...] -- <cmd...>    Run a command inside the sandbox\n")
+	fmt.Fprintf(os.Stderr, "  run [--quiet|-q] [--allow-path=<dir> ...] [--allow-path-rw=<dir> ...] -- <cmd...>  Run a command inside the sandbox\n")
 	fmt.Fprintf(os.Stderr, "  diff [--quiet|-q] [--shadow=<dir>]                       Show modified, added, and deleted files\n")
 	fmt.Fprintf(os.Stderr, "  revert [--quiet|-q] [--yes|-y]                           Discard session or working tree changes\n")
 	fmt.Fprintf(os.Stderr, "  apply [--quiet|-q] [--shadow=<dir>] [--yes]              Apply shadow changes to working directory\n")
@@ -161,7 +175,7 @@ func main() {
 			printUsage()
 			os.Exit(1)
 		}
-		allowPaths, _, quiet, cmdArgs, err := parseAllowPathsAndFlags(args, true)
+		allowPathsRO, allowPathsRW, _, quiet, cmdArgs, err := parseAllowPathsAndFlags(args, true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n\n", ui.StyleDenied.Render("ERROR"), err)
 			printUsage()
@@ -191,7 +205,7 @@ func main() {
 		}
 
 		if err := tr.Step("wrapped command execution", func() error {
-			return isolation.ReexecChild(allowPaths, sess.BaseDir, quiet, cmdArgs)
+			return isolation.ReexecChild(allowPathsRO, allowPathsRW, sess.BaseDir, quiet, cmdArgs)
 		}); err != nil {
 			var exitErr *osexec.ExitError
 			if errors.As(err, &exitErr) {
@@ -206,7 +220,7 @@ func main() {
 
 	case "__child__":
 		runtime.LockOSThread()
-		allowPaths, sessionDir, quiet, cmdArgs, err := parseAllowPathsAndFlags(args, false)
+		allowPathsRO, allowPathsRW, sessionDir, quiet, cmdArgs, err := parseAllowPathsAndFlags(args, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s safebox __child__: %v\n", ui.StyleDenied.Render("ERROR"), err)
 			os.Exit(1)
@@ -241,7 +255,7 @@ func main() {
 		}
 
 		if err := tr.Step("landlock restrict", func() error {
-			return isolation.ApplyLandlock(allowPaths...)
+			return isolation.ApplyLandlock(allowPathsRO, allowPathsRW)
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n", ui.StyleDenied.Render("ERROR"), err)
 			if hint := hintFor(err, cmdArgs); hint != "" {

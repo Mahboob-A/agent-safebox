@@ -186,6 +186,52 @@ func TestCLIRunAllowPathFlag(t *testing.T) {
 	}
 }
 
+func TestCLIRunAllowPathRWEndToEnd(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetFile := filepath.Join(tmpDir, "rw_created.txt")
+	out, err := runCLI("run", "--allow-path-rw="+tmpDir, "--", "sh", "-c", fmt.Sprintf("echo 'written' > %s", targetFile))
+	if err != nil {
+		t.Fatalf("expected run with --allow-path-rw to succeed, got: %v (output: %s)", err, string(out))
+	}
+	content, err := os.ReadFile(targetFile)
+	if err != nil {
+		t.Fatalf("expected target file to exist on host after --allow-path-rw write: %v", err)
+	}
+	if !strings.Contains(string(content), "written") {
+		t.Errorf("expected target file to contain 'written', got: %s", string(content))
+	}
+}
+
+func TestCLIRunAllowPathRWDoesNotGrantRWToOtherPaths(t *testing.T) {
+	tmpDirRW := t.TempDir()
+	tmpDirForbidden := t.TempDir()
+	targetFile := filepath.Join(tmpDirForbidden, "forbidden.txt")
+	out, err := runCLI("run", "--allow-path-rw="+tmpDirRW, "--", "sh", "-c", fmt.Sprintf("echo 'fail' > %s", targetFile))
+	if err == nil {
+		t.Fatalf("expected write to non-allowed path to fail, got success: %s", string(out))
+	}
+	if _, err := os.Stat(targetFile); err == nil {
+		t.Fatalf("forbidden file was created despite not being in --allow-path-rw")
+	}
+}
+
+func TestCLIRunAllowPathRWMissingDoubleDash(t *testing.T) {
+	tmpDir := t.TempDir()
+	cmd := exec.Command(testBinaryPath, "run", "--allow-path-rw="+tmpDir, "echo", "hi")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected error for run with --allow-path-rw but missing '--', got success with output: %s", string(out))
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+		t.Fatalf("expected exit code 2 for missing '--', got err: %v", err)
+	}
+	expectedMsg := "safebox: 'run' requires '--' before the wrapped command (e.g. safebox run -- <cmd>)"
+	if !strings.Contains(string(out), expectedMsg) {
+		t.Fatalf("expected output to contain %q, got: %s", expectedMsg, string(out))
+	}
+}
+
 func TestCLIActionableHintOnDenial(t *testing.T) {
 	tmpDir := t.TempDir()
 	scriptPath := filepath.Join(tmpDir, "denied.sh")

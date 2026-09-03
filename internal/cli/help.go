@@ -9,40 +9,29 @@ import (
 // UsageText is the complete help text for safebox.
 const UsageText = `safebox <command> [arguments]
 
-Run an untrusted command or AI coding agent inside an unprivileged Linux
-sandbox with Landlock filesystem containment and OverlayFS change capture.
+Unprivileged Linux sandbox and change-management engine for AI coding agents and developer commands.
 
 Commands:
-  run     [--quiet|-q] [--allow-path=<dir> ...] [--allow-path-rw=<dir> ...]
-          [--allow-file-rw=<file> ...] [--persistent-state=<host>:<mount> ...]
-          [--allow-net] [--probe] -- <cmd> [args...]
-          Execute <cmd> inside the sandbox. The '--' delimiter is required.
-          --allow-path grants read+execute access to <dir>.
-          --allow-path-rw grants read+write access to <dir>.
-          --allow-file-rw grants read+write access to single file <file>.
-          --persistent-state bind-mounts <host> at <mount> before Landlock lockdown.
-          --allow-net grants full internet egress via userspace NAT
-          (pasta or slirp4netns). Off by default. Domain-restricted mode
-          is planned for v0.5; --allow-network=<domain> is no longer accepted.
-          --probe prints the effective policy and exits without executing.
+  run       Execute a command or agent in the isolated sandbox (requires '--', supports --allow-path-rw, --allow-file-rw, --allow-net, --probe)
+  diff      Show uncommitted changes staged in the active session (-p for unified diff)
+  cat       Stream contents of a staged file from the active session to stdout
+  apply     Atomically commit staged sandbox changes to the host working directory
+  revert    Discard staged sandbox changes and clean up the session
+  profile   Inspect registered agent security profiles: profile [list|show <name>]
+  version   Print Safebox version and build information
+  help      Show this help message
 
-  diff    [--quiet|-q] [paths...]
-          Show what changed in the active sandbox session (non-blocking).
+Global Flags:
+  -v, --version  Show version and build information
+  -h, --help     Show this help message
 
-  revert  [--quiet|-q] [--yes|-y] [--force-discard]
-          Discard the active sandbox session without applying changes.
-          Refuses deletion if a safebox run is actively running (exit code 3).
-          --force-discard overrides active session protection with a warning.
-
-  apply   [--quiet|-q] [--yes|-y] [--force-discard]
-          Apply sandbox session changes to the host working directory.
-          If safebox run is active, changes are synced and session is kept.
-          --force-discard applies changes and immediately cleans up session.
-
-  profile [list|show <name>]
-          Inspect registered agent profiles (built-in and custom user profiles).
-
-  help    Show this help text.
+Quick Start Examples:
+  safebox run -- echo "Running inside sandbox"
+  safebox run --allow-net --allow-path=~/.local/bin -- agy
+  safebox diff -p
+  safebox cat server.go | less
+  safebox apply --yes
+  safebox revert --yes
 
 Exit Codes:
   0: Success
@@ -78,7 +67,11 @@ Security Note & Threat Model:
 
 On permission denial:
   safebox prints the exact --allow-path or --allow-path-rw flag needed.
-  Read the hint, copy-paste the flag into your command, retry.`
+  Read the hint, copy-paste the flag into your command, retry.
+
+Documentation:
+  Command Reference:   https://github.com/Mahboob-A/agent-safebox/blob/main/COMMANDS.md
+  System Architecture: https://github.com/Mahboob-A/agent-safebox/blob/main/ARCHITECTURE.md`
 
 // PrintUsage writes the usage guide to os.Stderr.
 func PrintUsage() {

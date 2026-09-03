@@ -190,6 +190,34 @@ func TestParseDiffApplyFlagsOptions(t *testing.T) {
 	}
 }
 
+func TestParseDiffApplyFlags_Patch(t *testing.T) {
+	flags, err := ParseDiffApplyFlags([]string{"-p"}, "diff")
+	if err != nil {
+		t.Fatalf("ParseDiffApplyFlags with -p failed: %v", err)
+	}
+	if !flags.Patch {
+		t.Errorf("expected Patch=true for -p, got false")
+	}
+
+	flagsLong, err := ParseDiffApplyFlags([]string{"--patch"}, "diff")
+	if err != nil {
+		t.Fatalf("ParseDiffApplyFlags with --patch failed: %v", err)
+	}
+	if !flagsLong.Patch {
+		t.Errorf("expected Patch=true for --patch, got false")
+	}
+
+	_, errApply := ParseDiffApplyFlags([]string{"-p"}, "apply")
+	if errApply == nil {
+		t.Errorf("expected error passing -p to apply, got nil")
+	}
+
+	_, errRevert := ParseDiffApplyFlags([]string{"--patch"}, "revert")
+	if errRevert == nil {
+		t.Errorf("expected error passing --patch to revert, got nil")
+	}
+}
+
 func TestParseDiffApplyFlagsRejectsExactShadow(t *testing.T) {
 	for _, arg := range []string{"--shadow", "--shadow=/tmp/xyz", "--shadow=", "--shadow=   "} {
 		_, errDiff := ParseDiffApplyFlags([]string{arg}, "diff")

@@ -11,8 +11,8 @@ import (
 	"syscall"
 )
 
-// isWhiteout checks if the given FileInfo represents an OverlayFS whiteout character device (major 0, minor 0).
-func isWhiteout(info os.FileInfo) bool {
+// IsWhiteout checks if the given FileInfo represents an OverlayFS whiteout character device (major 0, minor 0).
+func IsWhiteout(info os.FileInfo) bool {
 	if info.Mode()&os.ModeCharDevice == 0 {
 		return false
 	}
@@ -21,6 +21,10 @@ func isWhiteout(info os.FileInfo) bool {
 		return false
 	}
 	return stat.Rdev == 0
+}
+
+func isWhiteout(info os.FileInfo) bool {
+	return IsWhiteout(info)
 }
 
 // ScanShadowChanges walks upperDir and compares relative paths against lowerDir to classify changes as Added, Modified, or Deleted.

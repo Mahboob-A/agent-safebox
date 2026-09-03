@@ -40,6 +40,10 @@ func Dispatch(args []string, tr *trace.Tracer) int {
 		return RunApply(subArgs, tr)
 	case "profile":
 		return RunProfile(subArgs, tr)
+	case "cat":
+		return RunCat(subArgs, tr)
+	case "version", "-v", "--version":
+		return RunVersion(os.Stdout)
 	case "help", "-h", "--help":
 		return RunHelp(os.Stdout)
 	default:

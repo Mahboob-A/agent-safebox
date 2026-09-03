@@ -33,6 +33,9 @@ func RunDiff(args []string, tr *trace.Tracer) int {
 
 	if sess != nil {
 		if err := tr.Step("diff computation", func() error {
+			if flags.Patch {
+				return revert.RunShadowPatch(cwd, sess.UpperDir, os.Stdout, flags.Paths...)
+			}
 			return revert.RunShadowDiff(cwd, sess.UpperDir, os.Stdout, flags.Paths...)
 		}); err != nil {
 			PrintSubcommandError("diff", err)
@@ -42,6 +45,9 @@ func RunDiff(args []string, tr *trace.Tracer) int {
 	}
 
 	if err := tr.Step("diff computation", func() error {
+		if flags.Patch {
+			return revert.RunGitPatch(cwd, os.Stdout, flags.Paths...)
+		}
 		return revert.RunDiff(cwd, os.Stdout, flags.Paths...)
 	}); err != nil {
 		PrintSubcommandError("diff", err)

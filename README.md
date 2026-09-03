@@ -7,6 +7,7 @@ Safebox allows you to run untrusted CLI scripts, build tools, and autonomous AI 
 ---
 
 ## Deep Technical Internals, Execution Flow Diagrams, and Contributor Guides
+- **[Command Reference](COMMANDS.md)**: Exhaustive guide covering all subcommands, supported flags, execution options, and verified terminal outputs.
 - **[System Architecture & File-by-File Internals](ARCHITECTURE.md)**: Process lifecycle diagrams, kernel isolation mechanics, package responsibilities, and complete file inventory.
 - **[Contributing Guide](CONTRIBUTING.md)**: Open-source developer guide and AI agent bootstrap protocol.
 
@@ -27,29 +28,55 @@ What actually happens when a command runs inside Safebox compared to running dir
 
 ---
 
-## Play with Safebox
+## Installation
 
-### 1. Build and Install
-Safebox has zero runtime dependencies and compiles into a single static binary:
+Install Safebox on any Linux system (x86_64 or ARM64) with a single command:
 
 ```bash
-# Clone the repository
+# Install (latest stable release)
+curl -fsSL https://safebox.mahboob.engineer/install.sh | bash
+
+# Or pin to an exact release version
+curl -fsSL https://safebox.mahboob.engineer/install.sh | SAFEBOX_VERSION=v0.5.0 bash
+
+# Fallback (direct GitHub Raw)
+curl -fsSL https://raw.githubusercontent.com/Mahboob-A/agent-safebox/main/install.sh | bash
+```
+
+Alternatively, compile directly from source (requires Go 1.24+):
+```bash
 git clone https://github.com/Mahboob-A/agent-safebox.git
 cd agent-safebox
-
-# Compile the standalone binary
 go build -o /usr/local/bin/safebox .
 ```
 
-### 2. Filesystem Change Capture (OverlayFS)
+Verify your installation:
+```bash
+safebox version
+```
+
+---
+
+## Play with Safebox
+
+> [!TIP]
+> For the complete reference of all Safebox subcommands, flags, and real-world examples, see **[COMMANDS.md](COMMANDS.md)**.
+
+### 1. Filesystem Change Capture (OverlayFS)
 Make changes inside the sandbox, inspect them from the host, and decide whether to keep or discard them:
 
 ```bash
 # Modify or create a file inside the sandbox (trapped in upper layer):
 safebox run -- touch experimental-feature.go
 
-# Inspect the uncommitted changes from the host:
+# Inspect the uncommitted change summary from the host:
 safebox diff
+
+# Inspect line-by-line unified diff of all staged changes:
+safebox diff -p
+
+# Inspect the exact content of any staged file:
+safebox cat experimental-feature.go
 
 # Choose your outcome:
 # Keep the changes and atomically commit them to the host:

@@ -157,6 +157,6 @@ When submitting a PR, provide a complete, detailed description:
 
 ## 5. Core Repository Hygiene
 
-The core `safebox` repository is reserved strictly for Go source code, tests, and human-crafted documentation.
+The core `agent-safebox` repository is reserved strictly for Go source code, tests, and human-crafted documentation.
 - If you use AI coding assistants in your workflow, keep all agent notes, progress journals, and conversation logs in a separate directory outside the repository.
 - Do not commit AI prompt logs, scratch files, or conversational transcripts to `safebox`.

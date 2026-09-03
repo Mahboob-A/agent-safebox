@@ -27,6 +27,7 @@ type DiffApplyFlags struct {
 	Quiet        bool
 	Yes          bool
 	ForceDiscard bool
+	Patch        bool
 	Paths        []string
 }
 
@@ -387,6 +388,7 @@ func ParseDiffApplyFlags(args []string, command string) (DiffApplyFlags, error) 
 		quiet        bool
 		yes          bool
 		forceDiscard bool
+		patch        bool
 		paths        []string
 	)
 
@@ -406,6 +408,13 @@ func ParseDiffApplyFlags(args []string, command string) (DiffApplyFlags, error) 
 			forceDiscard = true
 			continue
 		}
+		if arg == "-p" || arg == "--patch" || arg == "--patch=true" {
+			if command != "diff" {
+				return DiffApplyFlags{}, fmt.Errorf("safebox %s: unknown flag %q", command, arg)
+			}
+			patch = true
+			continue
+		}
 		if strings.HasPrefix(arg, "-") {
 			return DiffApplyFlags{}, fmt.Errorf("safebox %s: unknown flag %q", command, arg)
 		}
@@ -420,6 +429,7 @@ func ParseDiffApplyFlags(args []string, command string) (DiffApplyFlags, error) 
 		Quiet:        quiet,
 		Yes:          yes,
 		ForceDiscard: forceDiscard,
+		Patch:        patch,
 		Paths:        paths,
 	}, nil
 }

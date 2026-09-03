@@ -1,0 +1,195 @@
+# Safebox Architecture & Systems Internals
+
+This document is the authoritative technical reference for the architecture, process lifecycle, kernel primitives, package structure, and security guarantees of Safebox.
+
+---
+
+## 1. System Overview & Defense-in-Depth
+
+Safebox provides unprivileged, microsecond-latency containment for untrusted CLI tools and autonomous AI coding agents. It enforces security through a five-layer defense-in-depth model implemented entirely in user space without requiring root privileges or setuid binaries:
+
+```
++-------------------------------------------------------------------------+
+| Layer 5: PID 1 Supervisor Shim (reaps zombies, forwards signals)        |
++-------------------------------------------------------------------------+
+| Layer 4: Landlock LSM Containment (deny-by-default kernel FS controls)  |
++-------------------------------------------------------------------------+
+| Layer 3: Ephemeral OverlayFS & State Mounts (shadows host FS mutations) |
++-------------------------------------------------------------------------+
+| Layer 2: Userspace NAT (CLONE_NEWNET + pasta / slirp4netns forwarder)   |
++-------------------------------------------------------------------------+
+| Layer 1: Linux Namespaces (CLONE_NEWUSER, NEWNS, NEWPID, NEWIPC, UTS)   |
++-------------------------------------------------------------------------+
+```
+
+---
+
+## 2. Process Lifecycle & Execution Flow
+
+When `safebox run -- <command...>` is invoked, the execution spans two discrete process stages: the **Parent Supervisor** and the **Child Sandbox Container**.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User / Calling Agent
+    participant Parent as Safebox Parent (Supervisor)
+    participant Kernel as Linux Kernel (Namespaces/LSM)
+    participant Child as Safebox Child (PID 1 Shim)
+    participant Target as Sandboxed Command (PID 2)
+
+    User->>Parent: safebox run [--allow-net] -- <cmd...>
+    Parent->>Parent: Parse flags & match agent profile (argv[0])
+    Parent->>Parent: Acquire session lock (<baseDir>/active)
+    Parent->>Parent: Prepare ephemeral OverlayFS dirs (upper/work)
+    Parent->>Parent: Allocate net-ready synchronization pipe
+    Parent->>Kernel: Fork/Exec self as "safebox child" with CLONE_NEWUSER|NS|NET|PID|IPC|UTS
+    
+    activate Child
+    Kernel-->>Parent: Child PID returned to parent
+    opt If --allow-net enabled
+        Parent->>Kernel: Start userspace NAT (pasta/slirp4netns) attached to child netns
+        Parent->>Child: Signal net-ready via pipe
+    end
+
+    Child->>Kernel: Mount private OverlayFS over working directory
+    Child->>Kernel: Bind-mount persistent state (~/.local/share/safebox/agents/<tool>)
+    Child->>Kernel: Bind-mount synthetic shadow /etc/hosts & /etc/resolv.conf
+    Child->>Kernel: Apply Landlock LSM ruleset (deny-by-default, allowlist cwd + sys libs)
+    Child->>Kernel: Fork target command as PID 2
+    activate Target
+    Child->>Child: Become PID 1 supervisor (signal forwarding & zombie reaping)
+    
+    Target->>Target: Execute user workload
+    Target-->>Child: Exit with status code
+    deactivate Target
+
+    Child-->>Parent: Exit with target status code
+    deactivate Child
+
+    Parent->>Parent: Release active session lock
+    Parent-->>User: Return target exit code
+```
+
+---
+
+## 3. Kernel Isolation Primitives
+
+### 3.1 Linux Namespaces
+- **`CLONE_NEWUSER`**: Maps the host UID/GID to root (`uid=0, gid=0`) inside the namespace via `/proc/self/uid_map` and `/proc/self/gid_map`. Enables unprivileged mounting without root privileges.
+- **`CLONE_NEWNS`**: Detaches mount points from the host namespace, ensuring all mount operations (OverlayFS, shadow `/etc`, persistent state) remain completely invisible to the host.
+- **`CLONE_NEWNET`**: Creates an empty network stack with only an unconfigured loopback interface. Outbound traffic is physically impossible unless `--allow-net` bridges the namespace via userspace NAT.
+- **`CLONE_NEWPID`**: Isolates process hierarchy. The child entrypoint becomes PID 1 inside the sandbox, isolating the host process table.
+- **`CLONE_NEWIPC` & `CLONE_NEWUTS`**: Isolates shared memory, message queues, and system hostname.
+
+### 3.2 Ephemeral OverlayFS & Change Tracking
+- Sandboxed writes are trapped in an ephemeral upper directory (`upperdir`) combined with an isolated working directory (`workdir`) mounted over the target directory (`lowerdir`).
+- Destructive operations, file deletions (whiteout character devices), and new files are staged in the upper layer without modifying the host working tree.
+- `safebox diff` reads the upper directory directly to display colored status.
+- `safebox apply` stages additions and modifications into a temporary directory before committing changes atomically to the host.
+- `safebox revert` purges the upper and work layers, restoring the pristine baseline.
+
+### 3.3 Landlock LSM File System Lockdown
+- Restricts filesystem access at the kernel level via the Linux Landlock Linux Security Module (ABI v1+).
+- **Default Policy**: Deny-by-default.
+- **Read-Write Grants**: The sandboxed working directory (`cwd`) and explicit `--allow-path-rw` arguments.
+- **Read-Only Grants**: System runtimes (`/usr`, `/usr/local`, `/lib`, `/lib64`, `/etc/ld.so.conf.d`) and safe configuration files (`/etc/passwd`, `/etc/group`, `/etc/localtime`, `/etc/ld.so.cache`, `/etc/ld.so.conf`, `/etc/nsswitch.conf`).
+- **Forbidden Invariants**: The default ruleset strictly forbids access to `$HOME` (`~/.ssh`, `~/.aws`, `~/.gnupg`) and `/etc/shadow`.
+- **Zero BestEffort Rule**: Landlock setup must fail loud. The codebase strictly avoids `.BestEffort()`, treating Landlock activation failures as fatal security errors.
+
+### 3.4 Host File Invariant Protection
+- To prevent DNS poisoning or host network corruption, Safebox never writes to the host `/etc/resolv.conf` or `/etc/hosts`.
+- Instead, Safebox creates synthetic temporary files in `/tmp`, bind-mounts them inside the child mount namespace, and immediately unlinks the temporary files from the host filesystem.
+
+---
+
+## 4. Modular Package Map
+
+The `safebox` codebase is structured into eight modular Go packages with strict separation of concerns:
+
+| Package | Directory | Core Architectural Responsibility |
+| :--- | :--- | :--- |
+| `main` | `safebox/` | CLI bootstrap, argument validation, and routing to dispatch. |
+| `internal/cli` | `safebox/internal/cli/` | Subcommand handlers (`run`, `child`, `diff`, `apply`, `revert`, `probe`, `profile`), argument parser, and user hints. |
+| `internal/isolation` | `safebox/internal/isolation/` | Kernel namespace creation, Landlock LSM rule compilation, OverlayFS mounting, and PID 1 init supervisor shim. |
+| `internal/netpolicy` | `safebox/internal/netpolicy/` | Userspace NAT orchestration (`pasta`, `slirp4netns`, pure-Go TAP), DNS pinning, and network namespace readiness synchronization. |
+| `internal/persistentstate` | `safebox/internal/persistentstate/` | Per-tool state directory preparation under `$XDG_STATE_HOME`, strict `0700` permission enforcement, and in-namespace bind mounting. |
+| `internal/profiles` | `safebox/internal/profiles/` | Declarative agent profile schemas, 16 embedded TOML configurations, custom user profile loader, and hand-rolled TOML parser. |
+| `internal/revert` | `safebox/internal/revert/` | Session lifecycle management, active PID lockfile coordination, diff generation, atomic staging commit, and whiteout cleanup. |
+| `internal/trace` | `safebox/internal/trace/` | Nanosecond-accurate execution step timing and formatted `stderr` badges (`[safebox]`, `[safebox:child]`). |
+| `internal/ui` | `safebox/internal/ui/` | Lipgloss terminal formatting, status badges, and color tokens. |
+
+---
+
+## 5. Complete File-by-File Inventory
+
+### Root & Entrypoint
+- `main.go`: Thin entrypoint (<25 lines) verifying minimum arguments and delegating to `cli.Dispatch`.
+- `main_test.go`: Unit tests for main entrypoint argument checking and exit codes.
+- `race_enabled_test.go`: Build-tag guarded helper for race detector test configurations.
+- `race_disabled_test.go`: Build-tag guarded helper for non-race test configurations.
+
+### `internal/cli` (Subcommand Dispatch & Parsers)
+- `dispatch.go`: Central command router mapping subcommands to their respective runners.
+- `parser.go`: Command-line flag tokenizer, validating mandatory `--` delimiters and options.
+- `parser_test.go`: Unit test suite for flag tokenization and validation edge cases.
+- `run.go`: Parent supervisor runner setting up namespaces, NAT, sessions, and child processes.
+- `child.go`: Containerized child entrypoint executing mounts, Landlock restrictions, and PID 1 shim.
+- `diff.go`: Change inspection runner formatting status markers (`+`, `~`, `-`).
+- `apply.go`: Atomic staging runner promoting OverlayFS upper modifications to the host.
+- `revert.go`: Session discard runner purging OverlayFS layers and restoring baseline.
+- `probe.go`: Pre-flight inspection runner displaying effective allowlists without execution.
+- `profile.go`: Profile management runner listing and showing agent TOML configurations.
+- `help.go`: Usage documentation and help text generator.
+- `hint.go`: Actionable remediation engine suggesting flags on permission denial.
+- `cli_test.go`: Integration tests for CLI subcommands, exit codes, and error formatting.
+- `integration_e2e_test.go`: End-to-end network egress and host isolation tests.
+
+### `internal/isolation` (Kernel Primitives & LSM)
+- `namespace.go`: Syscall wrapper creating user, mount, net, PID, IPC, and UTS namespaces.
+- `namespace_test.go`: Tests validating UID/GID mapping and unprivileged namespace creation.
+- `landlock.go`: Deny-by-default Landlock LSM ruleset compiler and activator.
+- `landlock_test.go`: Tests asserting path restriction, system lib allowlists, and error handling.
+- `overlay.go`: Unprivileged OverlayFS mounter combining lower, upper, and work layers.
+- `overlay_test.go`: Tests verifying OverlayFS mount options and permission preservation.
+- `shim.go`: Minimal PID 1 supervisor handling signal forwarding and zombie child reaping.
+- `shim_test.go`: Tests verifying signal propagation and child process reaping.
+- `errors.go`: Structured domain error types and human-readable formatting.
+- `errors_test.go`: Unit tests for structured error formatting and unwrapping.
+
+### `internal/netpolicy` (Userspace Networking & NAT)
+- `netpolicy.go`: NAT coordinator selecting best available userspace packet forwarder.
+- `netpolicy_test.go`: Unit tests for backend discovery and command generation.
+- `dns.go`: Thread-safe DNS resolver and IP pinning engine (`PinnedIPSet`).
+- `builtin.go`: Pure-Go userspace Layer 2 TAP packet forwarder for fallback environments.
+
+### `internal/persistentstate` (Agent State Isolation)
+- `state.go`: State directory resolver, strict `0700` permission creator, and mount applicator.
+- `state_test.go`: Unit tests for XDG state path resolution and mount error scenarios.
+
+### `internal/profiles` (Agent Profile System)
+- `profile.go`: Data structs and schemas defining agent filesystem and network access policies.
+- `profile_test.go`: Tests for profile validation, inheritance, and matching logic.
+- `registry.go`: Embedded profile registry providing access to all 16 built-in configurations.
+- `load.go`: User profile loader reading custom overrides from `~/.config/safebox/profiles/`.
+- `toml.go`: Zero-dependency, hand-rolled TOML parser tailored for agent profile schemas.
+
+### `internal/revert` (OverlayFS Session Management)
+- `session.go`: Session lifecycle manager tracking active PID locks, metadata, and pruning.
+- `session_test.go`: Tests for lockfile acquisition, collision prevention, and stale PID recovery.
+- `diff.go`: Filesystem comparator walking lower and upper layers to compute change sets.
+- `diff_test.go`: Tests verifying change detection for additions, modifications, and deletions.
+- `filter.go`: Path filter evaluator restricting diffs to specified directory subtrees.
+- `shadow_apply.go`: Atomic staging applier handling cross-filesystem copies and whiteouts.
+- `shadow_apply_test.go`: Tests verifying atomic commit and directory whiteout cleanup.
+- `shadow.go`: Helper functions resolving active session directories and state files.
+- `shadow_test.go`: Tests for session path resolution and directory helpers.
+- `git.go`: Git working tree restore fallback for non-OverlayFS workspaces.
+- `git_test.go`: Tests for git checkout and clean fallback mechanisms.
+- `revert.go`: High-level session discard coordinator.
+- `revert_test.go`: Tests asserting clean session teardown and error handling.
+
+### `internal/trace` & `internal/ui` (Observability & Terminal UI)
+- `trace.go`: Execution step timer emitting structured stderr badges (`[safebox]`).
+- `trace_test.go`: Tests for step timing accuracy and output formatting.
+- `styles.go`: Lipgloss styling definitions, color tokens, and visual badges.
+- `styles_test.go`: Tests verifying terminal escape sequence generation.

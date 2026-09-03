@@ -14,7 +14,8 @@ This document is the authoritative command reference for Safebox. It documents e
 | [`safebox apply`](#4-safebox-apply) | Atomically commits staged sandbox changes to host workspace | `-y` / `--yes`, `--force-discard` |
 | [`safebox revert`](#5-safebox-revert) | Discards staged changes and tears down active session | `-y` / `--yes`, `--force-discard` |
 | [`safebox profile`](#6-safebox-profile) | Inspects built-in and user-defined agent security profiles | `list`, `show <name>` |
-| [`safebox help`](#7-safebox-help) | Displays global usage summary and flag documentation | `-h`, `--help` |
+| [`safebox version`](#7-safebox-version) | Prints Safebox version and build metadata | `-v`, `--version` |
+| [`safebox help`](#8-safebox-help) | Displays global usage summary and flag documentation | `-h`, `--help` |
 
 ---
 
@@ -503,7 +504,40 @@ ERROR safebox: unknown profile "nonexistent-tool"
 
 ---
 
-## 7. safebox help
+## 7. safebox version
+
+### Synopsis
+```bash
+safebox version
+safebox -v
+safebox --version
+```
+
+Displays the installed Safebox version, short Git commit hash (if compiled within a repository or via release script), and target OS/architecture.
+
+### Examples
+
+#### Example 7.1: Inspecting Version
+```bash
+safebox version
+```
+**Output**:
+```text
+safebox v0.5.0 (commit: 2d4ae67, linux/amd64)
+```
+
+#### Example 7.2: Using Short Flag
+```bash
+safebox -v
+```
+**Output**:
+```text
+safebox v0.5.0 (commit: 2d4ae67, linux/amd64)
+```
+
+---
+
+## 8. safebox help
 
 ### Synopsis
 ```bash
@@ -512,11 +546,11 @@ safebox -h
 safebox --help
 ```
 
-Displays global command usage, flag definitions, exit codes, and agent security notes.
+Displays global command usage, flag definitions, quick-start workflows, exit codes, and agent security notes.
 
 ---
 
-## 8. Exit Code Reference
+## 9. Exit Code Reference
 
 Safebox uses distinct, deterministic exit status codes:
 

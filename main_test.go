@@ -669,6 +669,18 @@ func TestCLICat(t *testing.T) {
 	}
 }
 
+func TestCLIVersion(t *testing.T) {
+	for _, flag := range []string{"version", "-v", "--version"} {
+		out, err := runCLI(flag)
+		if err != nil {
+			t.Fatalf("safebox %s failed: %v, output: %s", flag, err, string(out))
+		}
+		if !strings.Contains(string(out), "safebox v0.5.0") {
+			t.Errorf("safebox %s expected 'safebox v0.5.0', got: %s", flag, string(out))
+		}
+	}
+}
+
 func TestCLIDiffFromSubdirectory(t *testing.T) {
 	dir := setupCLITestGitRepo(t)
 	subDir := filepath.Join(dir, "sub", "nested")

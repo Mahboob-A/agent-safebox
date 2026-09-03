@@ -28,24 +28,38 @@ What actually happens when a command runs inside Safebox compared to running dir
 
 ---
 
+## Installation
+
+Install Safebox on any Linux system (x86_64 or ARM64) with a single command:
+
+```bash
+# Install
+curl -fsSL https://safebox.mahboob.engineer/install.sh | bash
+
+# Fallback
+curl -fsSL https://raw.githubusercontent.com/Mahboob-A/agent-safebox/main/install.sh | bash
+```
+
+Alternatively, compile directly from source (requires Go 1.24+):
+```bash
+git clone https://github.com/Mahboob-A/agent-safebox.git
+cd agent-safebox
+go build -o /usr/local/bin/safebox .
+```
+
+Verify your installation:
+```bash
+safebox version
+```
+
+---
+
 ## Play with Safebox
 
 > [!TIP]
 > For the complete reference of all Safebox subcommands, flags, and real-world examples, see **[COMMANDS.md](COMMANDS.md)**.
 
-### 1. Build and Install
-Safebox has zero runtime dependencies and compiles into a single static binary:
-
-```bash
-# Clone the repository
-git clone https://github.com/Mahboob-A/agent-safebox.git
-cd agent-safebox
-
-# Compile the standalone binary
-go build -o /usr/local/bin/safebox .
-```
-
-### 2. Filesystem Change Capture (OverlayFS)
+### 1. Filesystem Change Capture (OverlayFS)
 Make changes inside the sandbox, inspect them from the host, and decide whether to keep or discard them:
 
 ```bash

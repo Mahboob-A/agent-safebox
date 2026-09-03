@@ -1,2 +1,4 @@
 safebox
 *.test
+dist/
+

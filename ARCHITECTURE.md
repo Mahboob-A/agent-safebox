@@ -136,8 +136,9 @@ The `safebox` codebase is structured into eight modular Go packages with strict 
 
 ### Root & Entrypoint
 - `COMMANDS.md`: Exhaustive CLI command reference documenting all subcommands, flags, and verified outputs.
+- `install.sh`: Standalone, zero-dependency POSIX installation script with architecture detection and atomic unpack.
 - `main.go`: Thin entrypoint (<25 lines) verifying minimum arguments and delegating to `cli.Dispatch`.
-- `main_test.go`: Unit tests for main entrypoint argument checking and exit codes.
+- `main_test.go`: Unit tests for main entrypoint argument checking, versioning, and exit codes.
 - `race_enabled_test.go`: Build-tag guarded helper for race detector test configurations.
 - `race_disabled_test.go`: Build-tag guarded helper for non-race test configurations.
 
@@ -150,6 +151,8 @@ The `safebox` codebase is structured into eight modular Go packages with strict 
 - `diff.go`: Change inspection runner formatting status markers (`+`, `~`, `-`) and unified diffs.
 - `cat.go`: Staged file content streaming runner reading from active session upper layer or host.
 - `cat_test.go`: Unit tests for file inspection, flag handling, and directory traversal.
+- `version.go`: Version metadata, Git commit extraction via runtime/debug, and version output formatter.
+- `version_test.go`: Unit tests for version string format, OS/arch detection, and exit codes.
 - `apply.go`: Atomic staging runner promoting OverlayFS upper modifications to the host.
 - `revert.go`: Session discard runner purging OverlayFS layers and restoring baseline.
 - `probe.go`: Pre-flight inspection runner displaying effective allowlists without execution.

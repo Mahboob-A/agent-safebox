@@ -1802,6 +1802,16 @@ func TestPhase15MidRunApplyAndConcurrencyEndToEnd(t *testing.T) {
 		t.Fatal("timed out waiting for active session lockfile to appear")
 	}
 
+	// Wait for agent_task.sh to write result.txt into the session upper layer
+	resultFile := filepath.Join(activeSessionDir, "upper", "result.txt")
+	fileDeadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(fileDeadline) {
+		if _, err := os.Stat(resultFile); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
 	// 3. From Terminal 2 (simulated via subcommands): run safebox diff (non-blocking)
 	diffCmd := exec.Command(testBinaryPath, "diff")
 	diffCmd.Dir = tmpDir

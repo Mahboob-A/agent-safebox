@@ -7,6 +7,7 @@ Safebox allows you to run untrusted CLI scripts, build tools, and autonomous AI 
 ---
 
 ## Deep Technical Internals, Execution Flow Diagrams, and Contributor Guides
+- **[Command Reference](COMMANDS.md)**: Exhaustive guide covering all subcommands, supported flags, execution options, and verified terminal outputs.
 - **[System Architecture & File-by-File Internals](ARCHITECTURE.md)**: Process lifecycle diagrams, kernel isolation mechanics, package responsibilities, and complete file inventory.
 - **[Contributing Guide](CONTRIBUTING.md)**: Open-source developer guide and AI agent bootstrap protocol.
 
@@ -28,6 +29,9 @@ What actually happens when a command runs inside Safebox compared to running dir
 ---
 
 ## Play with Safebox
+
+> [!TIP]
+> For the complete reference of all Safebox subcommands, flags, and real-world examples, see **[COMMANDS.md](COMMANDS.md)**.
 
 ### 1. Build and Install
 Safebox has zero runtime dependencies and compiles into a single static binary:

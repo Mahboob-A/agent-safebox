@@ -135,6 +135,7 @@ The `safebox` codebase is structured into eight modular Go packages with strict 
 ## 5. Complete File-by-File Inventory
 
 ### Root & Entrypoint
+- `COMMANDS.md`: Exhaustive CLI command reference documenting all subcommands, flags, and verified outputs.
 - `main.go`: Thin entrypoint (<25 lines) verifying minimum arguments and delegating to `cli.Dispatch`.
 - `main_test.go`: Unit tests for main entrypoint argument checking and exit codes.
 - `race_enabled_test.go`: Build-tag guarded helper for race detector test configurations.

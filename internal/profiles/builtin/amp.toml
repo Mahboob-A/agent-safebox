@@ -1,0 +1,13 @@
+[binary]
+name = "amp"
+
+[paths]
+allow_rw = ["$HOME/.config/amp", "$HOME/.local/share/amp", "$HOME/.cache/amp"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/amp"
+mount_at = "$HOME/.local/share/amp"
+
+[network]
+allow_net = true
+

@@ -1,0 +1,12 @@
+[binary]
+name = "codex"
+
+[paths]
+allow_rw = ["$HOME/.codex"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/codex"
+mount_at = "$HOME/.codex"
+
+[network]
+allow_net = true

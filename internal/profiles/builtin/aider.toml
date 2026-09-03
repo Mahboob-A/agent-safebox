@@ -1,0 +1,9 @@
+[binary]
+name = "aider"
+
+[paths]
+allow_rw = ["$HOME/.config/aider", "$HOME/.local/share/aider", "$HOME/.cache/aider"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/aider"
+mount_at = "$HOME/.local/share/aider"

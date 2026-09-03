@@ -73,6 +73,7 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 
 	// 4. Create newer session and verify it is returned as most recent
+	_ = sess.ReleaseActiveLock()
 	time.Sleep(10 * time.Millisecond)
 	sess2, err := CreateSession(workDir)
 	if err != nil {
@@ -126,6 +127,7 @@ func TestPruneSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session 1: %v", err)
 	}
+	_ = sess1.ReleaseActiveLock()
 
 	// 2. Create session 2 (recent session)
 	sess2, err := CreateSession(workDir)
@@ -159,5 +161,66 @@ func TestPruneSessions(t *testing.T) {
 	}
 	if _, err := os.Stat(sess2.BaseDir); err != nil {
 		t.Errorf("expected recent session directory %s to remain intact", sess2.BaseDir)
+	}
+}
+
+func TestPruneSessions_SkipsActiveSessions(t *testing.T) {
+	tmpRoot := t.TempDir()
+	t.Setenv("SAFEBOX_SESSION_ROOT", tmpRoot)
+
+	workDir1 := t.TempDir()
+	workDir2 := t.TempDir()
+
+	// Session 1: aged 48h but ACTIVE lockfile held (current PID)
+	sessActive, err := CreateSession(workDir1)
+	if err != nil {
+		t.Fatalf("CreateSession active failed: %v", err)
+	}
+	defer sessActive.ReleaseActiveLock()
+
+	sessActive.CreatedAt = time.Now().Add(-48 * time.Hour).UTC()
+	data1, err := json.MarshalIndent(sessActive, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessActive.BaseDir, "session.json"), data1, 0600); err != nil {
+		t.Fatalf("write metadata failed: %v", err)
+	}
+
+	// Session 2: aged 48h and INACTIVE (lock released)
+	sessInactive, err := CreateSession(workDir2)
+	if err != nil {
+		t.Fatalf("CreateSession inactive failed: %v", err)
+	}
+	if err := sessInactive.ReleaseActiveLock(); err != nil {
+		t.Fatalf("release lock failed: %v", err)
+	}
+
+	sessInactive.CreatedAt = time.Now().Add(-48 * time.Hour).UTC()
+	data2, err := json.MarshalIndent(sessInactive, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessInactive.BaseDir, "session.json"), data2, 0600); err != nil {
+		t.Fatalf("write metadata failed: %v", err)
+	}
+
+	// Run PruneSessions
+	pruned, err := PruneSessions(24 * time.Hour)
+	if err != nil {
+		t.Fatalf("PruneSessions failed: %v", err)
+	}
+	if pruned != 1 {
+		t.Errorf("expected exactly 1 pruned session (the inactive one), got %d", pruned)
+	}
+
+	// Assert active session remains intact
+	if _, err := os.Stat(sessActive.BaseDir); err != nil {
+		t.Errorf("expected active session %s to be preserved: %v", sessActive.BaseDir, err)
+	}
+
+	// Assert inactive session was purged
+	if _, err := os.Stat(sessInactive.BaseDir); !os.IsNotExist(err) {
+		t.Errorf("expected inactive session %s to be purged", sessInactive.BaseDir)
 	}
 }

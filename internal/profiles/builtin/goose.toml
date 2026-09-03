@@ -1,0 +1,9 @@
+[binary]
+name = "goose"
+
+[paths]
+allow_rw = ["$HOME/.config/goose", "$HOME/.local/share/goose", "$HOME/.cache/goose"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/goose"
+mount_at = "$HOME/.local/share/goose"

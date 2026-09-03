@@ -1,0 +1,13 @@
+[binary]
+name = "mentat"
+
+[paths]
+allow_rw = ["$HOME/.config/mentat", "$HOME/.local/share/mentat", "$HOME/.cache/mentat"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/mentat"
+mount_at = "$HOME/.local/share/mentat"
+
+[network]
+allow_net = true
+

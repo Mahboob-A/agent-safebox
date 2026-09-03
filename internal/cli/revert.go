@@ -33,7 +33,17 @@ func RunRevert(args []string, tr *trace.Tracer) int {
 	})
 
 	if sess != nil {
-		if !flags.Yes {
+		active, activePID, _ := sess.IsActive()
+		if active && !flags.ForceDiscard {
+			fmt.Fprintf(os.Stderr, "%s safebox revert: cannot revert active session (safebox run PID %d is running). Terminate the running process before reverting, or use 'safebox apply' to capture changes.\n", ui.StyleDenied.Render("ERROR"), activePID)
+			return 3
+		}
+
+		if active && flags.ForceDiscard {
+			fmt.Fprintf(os.Stderr, "%s Forced session revert while safebox run PID %d was active.\n", ui.StyleDenied.Render("WARNING:"), activePID)
+		}
+
+		if !flags.Yes && !flags.ForceDiscard {
 			fmt.Fprintf(os.Stdout, "%s Discard active overlay session changes? [y/N]: ", ui.StyleMeta.Render("PROMPT"))
 			var response string
 			if _, err := fmt.Fscanln(os.Stdin, &response); err != nil || (response != "y" && response != "yes" && response != "Y" && response != "YES") {

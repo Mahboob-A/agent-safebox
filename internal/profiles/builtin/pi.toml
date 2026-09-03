@@ -1,0 +1,9 @@
+[binary]
+name = "pi"
+
+[paths]
+allow_rw = ["$HOME/.config/pi", "$HOME/.local/share/pi", "$HOME/.cache/pi"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/pi"
+mount_at = "$HOME/.local/share/pi"

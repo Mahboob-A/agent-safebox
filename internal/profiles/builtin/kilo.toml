@@ -1,0 +1,9 @@
+[binary]
+name = "kilo"
+
+[paths]
+allow_rw = ["$HOME/.config/kilo", "$HOME/.local/share/kilo", "$HOME/.cache/kilo"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/kilo"
+mount_at = "$HOME/.local/share/kilo"

@@ -1,0 +1,9 @@
+[binary]
+name = "cline"
+
+[paths]
+allow_rw = ["$HOME/.config/cline", "$HOME/.local/share/cline", "$HOME/.cache/cline"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/cline"
+mount_at = "$HOME/.local/share/cline"

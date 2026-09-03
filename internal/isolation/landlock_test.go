@@ -30,7 +30,7 @@ func TestFilterExisting(t *testing.T) {
 
 func TestApplyLandlockSubprocess(t *testing.T) {
 	if os.Getenv("TEST_LANDLOCK_CHILD") == "1" {
-		if err := ApplyLandlock(nil, nil); err != nil {
+		if err := ApplyLandlock(nil, nil, nil); err != nil {
 			os.Exit(2)
 		}
 		// Verify reading /root is denied specifically with EACCES
@@ -84,7 +84,7 @@ func TestApplyLandlockSubprocess(t *testing.T) {
 
 func TestApplyLandlockCustomAllowPathSubprocess(t *testing.T) {
 	if customPath := os.Getenv("TEST_LANDLOCK_CUSTOM_DIR"); customPath != "" {
-		if err := ApplyLandlock([]string{customPath}, nil); err != nil {
+		if err := ApplyLandlock([]string{customPath}, nil, nil); err != nil {
 			os.Exit(2)
 		}
 		// Verify reading customPath succeeds
@@ -112,7 +112,7 @@ func TestApplyLandlockCustomAllowPathSubprocess(t *testing.T) {
 
 func TestLandlockAllowPathRW(t *testing.T) {
 	if rwDir := os.Getenv("TEST_LANDLOCK_RW_DIR"); rwDir != "" {
-		if err := ApplyLandlock(nil, []string{rwDir}); err != nil {
+		if err := ApplyLandlock(nil, []string{rwDir}, nil); err != nil {
 			os.Exit(2)
 		}
 		// Write to RW dir should succeed
@@ -146,7 +146,7 @@ func TestProbeLandlock(t *testing.T) {
 	tmpRO := t.TempDir()
 	tmpRW := t.TempDir()
 
-	report, err := ProbeLandlock([]string{tmpRO}, []string{tmpRW})
+	report, err := ProbeLandlock([]string{tmpRO}, []string{tmpRW}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error from ProbeLandlock: %v", err)
 	}

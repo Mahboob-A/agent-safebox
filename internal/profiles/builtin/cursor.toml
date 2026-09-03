@@ -1,0 +1,9 @@
+[binary]
+name = "cursor"
+
+[paths]
+allow_rw = ["$HOME/.cursor", "$HOME/.config/Cursor"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/cursor"
+mount_at = "$HOME/.cursor"

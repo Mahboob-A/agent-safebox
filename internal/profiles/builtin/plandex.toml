@@ -1,0 +1,9 @@
+[binary]
+name = "plandex"
+
+[paths]
+allow_rw = ["$HOME/.config/plandex", "$HOME/.local/share/plandex", "$HOME/.cache/plandex"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/plandex"
+mount_at = "$HOME/.local/share/plandex"

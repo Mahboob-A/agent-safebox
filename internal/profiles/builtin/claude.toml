@@ -1,0 +1,13 @@
+[binary]
+name = "claude"
+
+[paths]
+allow_rw = ["$HOME/.claude"]
+allow_rw_files = ["$HOME/.claude.json"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/claude"
+mount_at = "$HOME/.claude"
+
+[network]
+allow_net = true

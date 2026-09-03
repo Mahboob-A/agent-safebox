@@ -33,6 +33,11 @@ func HintFor(err error, cmdArgs []string) string {
 		return execDenied.Hint()
 	}
 
+	var persistMountErr *isolation.ErrPersistentStateMount
+	if errors.As(err, &persistMountErr) {
+		return persistMountErr.Hint()
+	}
+
 	bin := cmdArgs[0]
 	binDir := filepath.Dir(bin)
 	if strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "operation not permitted") {

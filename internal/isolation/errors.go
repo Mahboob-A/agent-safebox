@@ -74,3 +74,22 @@ func (e *ErrExecDenied) Hint() string {
 	}
 	return ""
 }
+
+// ErrPersistentStateMount represents failure to bind mount persistent state inside child.
+type ErrPersistentStateMount struct {
+	HostPath  string
+	MountPath string
+	Err       error
+}
+
+func (e *ErrPersistentStateMount) Error() string {
+	return fmt.Sprintf("failed to bind mount persistent state %s -> %s: %v", e.HostPath, e.MountPath, e.Err)
+}
+
+func (e *ErrPersistentStateMount) Unwrap() error {
+	return e.Err
+}
+
+func (e *ErrPersistentStateMount) Hint() string {
+	return fmt.Sprintf("persistent state mount failed for '%s' -> ensure host directory '%s' exists and is accessible with mode 0700", e.MountPath, e.HostPath)
+}

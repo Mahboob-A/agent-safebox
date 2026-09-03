@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -15,6 +16,22 @@ var (
 	// ErrNoSessionFound is returned when no active session matches the requested directory.
 	ErrNoSessionFound = errors.New("safebox: no active session found for directory")
 )
+
+// ErrSessionAlreadyActive is returned when a new session is requested in a
+// directory where an existing session's <baseDir>/active lockfile is held
+// by a live process.
+type ErrSessionAlreadyActive struct {
+	PID     int
+	BaseDir string
+}
+
+func (e *ErrSessionAlreadyActive) Error() string {
+	return fmt.Sprintf("safebox session is already active in %s (PID %d)", e.BaseDir, e.PID)
+}
+
+func (e *ErrSessionAlreadyActive) Hint() string {
+	return "wait for active session to complete, or use 'safebox diff' / 'safebox apply' to inspect or capture changes; pass --force-discard to override"
+}
 
 // Session encapsulates the metadata and directory paths for an OverlayFS execution session.
 type Session struct {
@@ -68,6 +85,11 @@ func PruneSessions(maxAge time.Duration) (int, error) {
 			continue
 		}
 
+		// Skip active sessions regardless of age
+		if active, _, _ := sess.IsActive(); active {
+			continue
+		}
+
 		if now.Sub(sess.CreatedAt) > maxAge {
 			if err := DiscardSession(sess); err == nil {
 				prunedCount++
@@ -87,6 +109,15 @@ func CreateSession(lowerDir string) (*Session, error) {
 	absLower, err := filepath.Abs(lowerDir)
 	if err != nil {
 		return nil, fmt.Errorf("safebox: cannot resolve absolute path for lower directory: %w", err)
+	}
+
+	// Check if an active session already exists in this directory
+	if existing, xErr := MostRecentSession(absLower, true); xErr == nil && existing != nil {
+		if active, activePID, _ := existing.IsActive(); active {
+			return nil, &ErrSessionAlreadyActive{PID: activePID, BaseDir: existing.BaseDir}
+		}
+	} else if xErr != nil && !errors.Is(xErr, ErrNoSessionFound) {
+		return nil, xErr
 	}
 
 	// Automatic best-effort pruning of stale sessions older than 24 hours
@@ -127,6 +158,13 @@ func CreateSession(lowerDir string) (*Session, error) {
 		return nil, fmt.Errorf("safebox: failed to write session metadata: %w", err)
 	}
 
+	// Write active lockfile containing parent PID
+	lockPath := filepath.Join(baseDir, "active")
+	pidStr := fmt.Sprintf("%d\n", os.Getpid())
+	if err := os.WriteFile(lockPath, []byte(pidStr), 0600); err != nil {
+		return nil, fmt.Errorf("safebox: failed to write active lockfile: %w", err)
+	}
+
 	return session, nil
 }
 
@@ -165,8 +203,10 @@ func MostRecentSession(targetDir string, strict bool) (*Session, error) {
 		return nil, fmt.Errorf("safebox: failed to read session root directory: %w", err)
 	}
 
+	// Iterate in reverse (newest session directories first based on sess-<timestamp>-<pid> naming)
 	var matching []*Session
-	for _, entry := range entries {
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
 		if !entry.IsDir() {
 			continue
 		}
@@ -176,15 +216,17 @@ func MostRecentSession(targetDir string, strict bool) (*Session, error) {
 			continue
 		}
 		if strict {
-			if sess.LowerDir != absTarget {
-				continue
+			if sess.LowerDir == absTarget {
+				return sess, nil
 			}
 		} else {
-			if sess.LowerDir != absTarget && !strings.HasPrefix(absTarget, sess.LowerDir+string(filepath.Separator)) {
-				continue
+			if sess.LowerDir == absTarget {
+				return sess, nil
+			}
+			if strings.HasPrefix(absTarget, sess.LowerDir+string(filepath.Separator)) {
+				matching = append(matching, sess)
 			}
 		}
-		matching = append(matching, sess)
 	}
 
 	if len(matching) == 0 {
@@ -205,3 +247,50 @@ func DiscardSession(session *Session) error {
 	}
 	return os.RemoveAll(session.BaseDir)
 }
+
+// IsActive checks whether the session is currently locked by a live process.
+// Returns (active, pid, err).
+//
+// active=true means <baseDir>/active exists, contains a parseable PID > 0,
+// and that PID is alive per syscall.Kill(pid, 0).
+// EPERM is treated as alive (process exists but owned by another UID / namespace).
+// ESRCH (no such process) returns active=false (stale lock).
+func (s *Session) IsActive() (bool, int, error) {
+	if s == nil || s.BaseDir == "" {
+		return false, 0, nil
+	}
+	lockPath := filepath.Join(s.BaseDir, "active")
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, 0, nil
+		}
+		return false, 0, err
+	}
+	var pid int
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &pid); err != nil || pid <= 0 {
+		return false, 0, nil
+	}
+	err = syscall.Kill(pid, 0)
+	if err == nil || errors.Is(err, syscall.EPERM) {
+		return true, pid, nil
+	}
+	if errors.Is(err, syscall.ESRCH) {
+		return false, pid, nil
+	}
+	return false, pid, err
+}
+
+// ReleaseActiveLock removes the <baseDir>/active lockfile.
+// Missing lockfile is not an error (already released). Defer-friendly.
+func (s *Session) ReleaseActiveLock() error {
+	if s == nil || s.BaseDir == "" {
+		return nil
+	}
+	err := os.Remove(filepath.Join(s.BaseDir, "active"))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+

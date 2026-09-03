@@ -13,45 +13,68 @@ Run an untrusted command or AI coding agent inside an unprivileged Linux
 sandbox with Landlock filesystem containment and OverlayFS change capture.
 
 Commands:
-  run    [--quiet|-q] [--allow-path=<dir> ...] [--allow-path-rw=<dir> ...]
-         [--probe] -- <cmd> [args...]
-         Execute <cmd> inside the sandbox. The '--' delimiter is required.
-         --allow-path grants read+execute access to <dir>.
-         --allow-path-rw grants read+write access to <dir>.
-         --probe prints the effective policy and exits without executing.
+  run     [--quiet|-q] [--allow-path=<dir> ...] [--allow-path-rw=<dir> ...]
+          [--allow-file-rw=<file> ...] [--persistent-state=<host>:<mount> ...]
+          [--allow-net] [--probe] -- <cmd> [args...]
+          Execute <cmd> inside the sandbox. The '--' delimiter is required.
+          --allow-path grants read+execute access to <dir>.
+          --allow-path-rw grants read+write access to <dir>.
+          --allow-file-rw grants read+write access to single file <file>.
+          --persistent-state bind-mounts <host> at <mount> before Landlock lockdown.
+          --allow-net grants full internet egress via userspace NAT
+          (pasta or slirp4netns). Off by default. Domain-restricted mode
+          is planned for v0.5; --allow-network=<domain> is no longer accepted.
+          --probe prints the effective policy and exits without executing.
 
-  diff   [--quiet|-q] [paths...]
-         Show what changed in the active sandbox session.
+  diff    [--quiet|-q] [paths...]
+          Show what changed in the active sandbox session (non-blocking).
 
-  revert [--quiet|-q] [--yes|-y]
-         Discard the active sandbox session without applying changes.
+  revert  [--quiet|-q] [--yes|-y] [--force-discard]
+          Discard the active sandbox session without applying changes.
+          Refuses deletion if a safebox run is actively running (exit code 3).
+          --force-discard overrides active session protection with a warning.
 
-  apply  [--quiet|-q] [--yes|-y]
-         Apply sandbox session changes to the host working directory.
+  apply   [--quiet|-q] [--yes|-y] [--force-discard]
+          Apply sandbox session changes to the host working directory.
+          If safebox run is active, changes are synced and session is kept.
+          --force-discard applies changes and immediately cleans up session.
 
-  help   Show this help text.
+  profile [list|show <name>]
+          Inspect registered agent profiles (built-in and custom user profiles).
+
+  help    Show this help text.
+
+Exit Codes:
+  0: Success
+  1: Command execution or general error
+  2: Usage or argument parsing error
+  3: Active session safety refusal on revert
+  4: Network backend unavailable (install slirp4netns or pasta)
+  5: Persistent state bind mount denied (NFR1 hard-fail)
+  6: Active session collision in working directory
+  7: Network namespace isolation verification failure
 
 Where safebox stores state:
   Sessions:    $SAFEBOX_SESSION_ROOT (default: $TMPDIR/safebox/sessions)
-  Persistent:  v0.4: per-agent state under ~/.local/share/safebox/agents/<tool>/
-  Profiles:    v0.4: ~/.config/safebox/profiles/<tool>.toml
+  Persistent:  $XDG_STATE_HOME/safebox/agents/<tool>/ (default: ~/.local/share/safebox/agents/<tool>/)
+  Profiles:    ~/.config/safebox/profiles/<tool>.toml
 
 Running a coding agent:
-  Every agent stores its config, logs, and identity under a directory in
-  your home folder. To run the agent, grant safebox access to its
-  binary (read+execute) and its state dir (read+write):
+  safebox includes built-in profiles for 16 major AI coding agents (agy, claude,
+  codex, puku, cursor, kilo, aider, etc.) that automatically grant required
+  state directory permissions, persistent state bind-mounts, and cloud LLM
+  egress without manual flags:
 
-    safebox run --allow-path=<binary_dir> --allow-path-rw=<state_dir> -- <bin> ...
+    safebox run -- <agent> <args...>
 
-  Examples (use the paths that match your install):
+  Custom user profiles can be placed in ~/.config/safebox/profiles/<name>.toml
+  to override or extend built-in profiles.
 
-    safebox run --allow-path=/usr/local/bin --allow-path-rw=$HOME/.claude -- claude "task"
-    safebox run --allow-path=$HOME/.local/bin --allow-path-rw=$HOME/.gemini -- agy "task"
-    safebox run --allow-path=$HOME/.local/bin --allow-path-rw=$HOME/.codex -- codex "task"
-    safebox run --allow-path=$HOME/.local/bin --allow-path-rw=$HOME/.puku-cli -- puku "task"
-
-  In v0.4, safebox will auto-detect these paths from built-in profiles so
-  you only need: safebox run -- <bin> "task".
+Security Note & Threat Model:
+  Built-in profiles match by argv[0] substring. If your PATH contains an untrusted
+  binary whose name collides with a known agent, that binary will receive the agent's
+  RW grants AND the agent's persistent-state bind-mount, exposing auth tokens.
+  Use a full path to the trusted binary or remove the untrusted one from PATH.
 
 On permission denial:
   safebox prints the exact --allow-path or --allow-path-rw flag needed.

@@ -1,0 +1,12 @@
+[binary]
+name = "agy"
+
+[paths]
+allow_rw = ["$HOME/.gemini"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/agy"
+mount_at = "$HOME/.gemini"
+
+[network]
+allow_net = true

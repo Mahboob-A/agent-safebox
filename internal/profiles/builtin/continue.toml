@@ -1,0 +1,9 @@
+[binary]
+name = "continue"
+
+[paths]
+allow_rw = ["$HOME/.config/continue", "$HOME/.local/share/continue", "$HOME/.cache/continue"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/continue"
+mount_at = "$HOME/.local/share/continue"

@@ -38,6 +38,8 @@ func Dispatch(args []string, tr *trace.Tracer) int {
 		return RunRevert(subArgs, tr)
 	case "apply":
 		return RunApply(subArgs, tr)
+	case "profile":
+		return RunProfile(subArgs, tr)
 	case "help", "-h", "--help":
 		return RunHelp(os.Stdout)
 	default:

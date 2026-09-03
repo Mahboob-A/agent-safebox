@@ -32,7 +32,7 @@ func RunProbe(flags RunFlags, cmdArgs []string) int {
 		binDisplay = "(none specified)"
 	}
 
-	report, err := isolation.ProbeLandlock(flags.AllowPathsRO, flags.AllowPathsRW)
+	report, err := isolation.ProbeLandlock(flags.AllowPathsRO, flags.AllowPathsRW, flags.AllowFilesRW)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "safebox: failed to probe landlock policy: %v\n", err)
 		return 1

@@ -34,7 +34,7 @@ func RunApply(args []string, tr *trace.Tracer) int {
 		return 1
 	}
 
-	if !flags.Yes {
+	if !flags.Yes && !flags.ForceDiscard {
 		fmt.Fprintf(os.Stdout, "%s Apply shadow changes to working directory? [y/N]: ", ui.StyleMeta.Render("PROMPT"))
 		var response string
 		if _, err := fmt.Fscanln(os.Stdin, &response); err != nil || (response != "y" && response != "yes" && response != "Y" && response != "YES") {
@@ -48,6 +48,16 @@ func RunApply(args []string, tr *trace.Tracer) int {
 	}); err != nil {
 		PrintSubcommandError("apply", err)
 		return 1
+	}
+
+	active, activePID, _ := sess.IsActive()
+	if active && !flags.ForceDiscard {
+		fmt.Fprintf(os.Stdout, "%s Applied changes. Session is still in use by safebox run PID %d; session will be cleaned up when that process exits.\n", ui.StyleAllowed.Render("OK"), activePID)
+		return 0
+	}
+
+	if active && flags.ForceDiscard {
+		fmt.Fprintf(os.Stderr, "%s Forced session cleanup while safebox run PID %d was active.\n", ui.StyleDenied.Render("WARNING:"), activePID)
 	}
 
 	_ = tr.Step("session cleanup", func() error {

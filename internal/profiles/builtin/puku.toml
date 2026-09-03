@@ -1,0 +1,9 @@
+[binary]
+name = "puku"
+
+[paths]
+allow_rw = ["$HOME/.puku-cli"]
+
+[persistent_state]
+host_dir = "$XDG_STATE_HOME/safebox/agents/puku"
+mount_at = "$HOME/.puku-cli"

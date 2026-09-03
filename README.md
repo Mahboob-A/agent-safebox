@@ -33,10 +33,13 @@ What actually happens when a command runs inside Safebox compared to running dir
 Install Safebox on any Linux system (x86_64 or ARM64) with a single command:
 
 ```bash
-# Install
+# Install (latest stable release)
 curl -fsSL https://safebox.mahboob.engineer/install.sh | bash
 
-# Fallback
+# Or pin to an exact release version
+curl -fsSL https://safebox.mahboob.engineer/install.sh | SAFEBOX_VERSION=v0.5.0 bash
+
+# Fallback (direct GitHub Raw)
 curl -fsSL https://raw.githubusercontent.com/Mahboob-A/agent-safebox/main/install.sh | bash
 ```
 

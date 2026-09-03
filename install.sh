@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Safebox Official Linux Installer
 # Usage: curl -fsSL https://safebox.mahboob.engineer/install.sh | bash
+# Pinning: curl -fsSL https://safebox.mahboob.engineer/install.sh | SAFEBOX_VERSION=v0.5.0 bash
 # Fallback: curl -fsSL https://raw.githubusercontent.com/Mahboob-A/agent-safebox/main/install.sh | bash
 
-VERSION="${SAFEBOX_VERSION:-v0.5.0}"
 REPO="Mahboob-A/agent-safebox"
 
 # 1. Operating System Validation (Safebox is Linux-only)
@@ -32,7 +32,20 @@ case "$ARCH" in
     ;;
 esac
 
-# 3. Installation Directories
+# 3. Version Resolution (Default: latest release)
+if [ -n "${SAFEBOX_VERSION:-}" ]; then
+  VERSION="$SAFEBOX_VERSION"
+  TARBALL_NAME="safebox-${VERSION}-${TARGET}.tar.gz"
+  DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${TARBALL_NAME}"
+  CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
+else
+  VERSION="latest"
+  TARBALL_NAME="safebox-${TARGET}.tar.gz"
+  DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${TARBALL_NAME}"
+  CHECKSUM_URL="https://github.com/${REPO}/releases/latest/download/checksums.txt"
+fi
+
+# 4. Installation Directories
 if [ "$(id -u)" -eq 0 ]; then
   BIN_HOME="/usr/local/bin"
 else
@@ -44,28 +57,24 @@ STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}/safebox"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-TARBALL_NAME="safebox-${VERSION}-${TARGET}.tar.gz"
-DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${TARBALL_NAME}"
-CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
-
 echo "========================================================"
-echo " Installing Safebox ${VERSION} (${TARGET})"
+echo " Installing Safebox (${VERSION}, ${TARGET})"
 echo "========================================================"
 
-# 4. Download Tarball
+# 5. Download Release Tarball
 TARBALL="$TMP/$TARBALL_NAME"
 echo "Downloading from GitHub Releases..."
 if ! curl -fL --retry 3 --retry-delay 2 --progress-bar "$DOWNLOAD_URL" -o "$TARBALL"; then
   echo "Error: Failed to download release tarball from $DOWNLOAD_URL" >&2
-  echo "Please check your network connection or verify that release $VERSION exists." >&2
+  echo "Please verify that the release exists on https://github.com/${REPO}/releases" >&2
   exit 1
 fi
 
-# 5. Checksum Verification (if checksum file is available)
+# 6. Checksum Verification (if checksum file is present)
 CHECKSUM_FILE="$TMP/checksums.txt"
 if curl -fsSL "$CHECKSUM_URL" -o "$CHECKSUM_FILE" 2>/dev/null; then
   echo "Verifying SHA256 checksum..."
-  EXPECTED_SHA="$(grep "$TARBALL_NAME" "$CHECKSUM_FILE" | awk '{print $1}' || true)"
+  EXPECTED_SHA="$(grep -E "(^|[[:space:]])${TARBALL_NAME}$" "$CHECKSUM_FILE" | awk '{print $1}' | head -n 1 || true)"
   if [ -n "$EXPECTED_SHA" ]; then
     if command -v sha256sum >/dev/null 2>&1; then
       ACTUAL_SHA="$(sha256sum "$TARBALL" | awk '{print $1}')"
@@ -82,7 +91,7 @@ if curl -fsSL "$CHECKSUM_URL" -o "$CHECKSUM_FILE" 2>/dev/null; then
   fi
 fi
 
-# 6. Unpack and Atomic Install
+# 7. Unpack and Atomic Install
 echo "Unpacking binary..."
 tar -xzf "$TARBALL" -C "$TMP"
 
@@ -104,7 +113,7 @@ cp "$BIN_SRC" "$TARGET_TMP"
 chmod 755 "$TARGET_TMP"
 mv -f "$TARGET_TMP" "$TARGET_BIN"
 
-# 7. Write Installation Metadata
+# 8. Write Installation Metadata
 mkdir -p "$STATE_HOME"
 cat > "$STATE_HOME/install.json" <<EOF
 {
@@ -116,10 +125,10 @@ cat > "$STATE_HOME/install.json" <<EOF
 EOF
 
 echo "========================================================"
-echo " Safebox ${VERSION} successfully installed to: $TARGET_BIN"
+echo " Safebox successfully installed to: $TARGET_BIN"
 echo "========================================================"
 
-# 8. Check PATH
+# 9. Verify Shell PATH
 case ":$PATH:" in
   *":$BIN_HOME:"*)
     echo

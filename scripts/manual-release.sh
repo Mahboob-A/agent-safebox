@@ -61,13 +61,15 @@ TARBALL_ARM64="safebox-${VERSION}-linux-arm64.tar.gz"
 
 tar -czf "$DIST_DIR/$TARBALL_AMD64" -C "$DIST_DIR" safebox-linux-amd64
 tar -czf "$DIST_DIR/$TARBALL_ARM64" -C "$DIST_DIR" safebox-linux-arm64
+cp "$DIST_DIR/$TARBALL_AMD64" "$DIST_DIR/safebox-linux-amd64.tar.gz"
+cp "$DIST_DIR/$TARBALL_ARM64" "$DIST_DIR/safebox-linux-arm64.tar.gz"
 
 (
   cd "$DIST_DIR"
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$TARBALL_AMD64" "$TARBALL_ARM64" > checksums.txt
+    sha256sum "$TARBALL_AMD64" "$TARBALL_ARM64" safebox-linux-amd64.tar.gz safebox-linux-arm64.tar.gz > checksums.txt
   else
-    shasum -a 256 "$TARBALL_AMD64" "$TARBALL_ARM64" > checksums.txt
+    shasum -a 256 "$TARBALL_AMD64" "$TARBALL_ARM64" safebox-linux-amd64.tar.gz safebox-linux-arm64.tar.gz > checksums.txt
   fi
 )
 
@@ -77,13 +79,15 @@ echo " Artifacts in: $DIST_DIR"
 cat "$DIST_DIR/checksums.txt"
 echo "========================================================"
 echo
-echo "NEXT STEPS TO PUBLISH GITHUB RELEASE:"
-echo "  1. Merge your PR and push changes to main branch:"
-echo "       git checkout main && git merge <feature-branch> && git push origin main"
-echo "  2. Tag the release on main and push the tag:"
-echo "       git tag $VERSION"
+echo "NEXT STEPS TO PUBLISH GITHUB RELEASE (PROTECTED MAIN):"
+echo "  1. Merge your Pull Request into main via the GitHub web interface"
+echo "     (direct pushes to main are disabled/protected)."
+echo "  2. Switch to main locally and pull the merged commit:"
+echo "       git checkout main && git pull origin main"
+echo "  3. Create an annotated tag on main and push the tag:"
+echo "       git tag -a $VERSION -m \"Safebox $VERSION release\""
 echo "       git push origin $VERSION"
-echo "  3. Create GitHub release and upload assets:"
-echo "       gh release create $VERSION $DIST_DIR/$TARBALL_AMD64 $DIST_DIR/$TARBALL_ARM64 $DIST_DIR/checksums.txt --title \"Safebox $VERSION\" --notes \"Release $VERSION\""
-echo "     Or drag-and-drop the tarballs in $DIST_DIR to: https://github.com/Mahboob-A/agent-safebox/releases/new"
+echo "  4. GitHub Actions (.github/workflows/release.yml) will automatically"
+echo "     cross-compile and publish the release assets to GitHub."
+echo "     (Manual fallback: gh release create $VERSION $DIST_DIR/* --title \"Safebox $VERSION\")"
 echo "========================================================"

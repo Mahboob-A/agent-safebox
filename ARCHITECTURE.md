@@ -214,6 +214,10 @@ The `safebox` codebase is structured into eight modular Go packages with strict 
 - `styles.go`: Lipgloss styling definitions, color tokens, and visual badges.
 - `styles_test.go`: Tests verifying terminal escape sequence generation.
 
+### Release & CI/CD Tooling
+- `.github/workflows/release.yml`: GitHub Actions automated release pipeline cross-compiling Linux binaries and publishing release assets.
+- `scripts/manual-release.sh`: Offline/local cross-compilation helper generating Linux amd64/arm64 release archives and checksums.
+
 
 ---
 

@@ -42,6 +42,10 @@ func HintFor(err error, cmdArgs []string) string {
 		return "Ubuntu 24.04+ has restricted unprivileged user namespaces. Run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"
 	}
 
+	if (strings.Contains(err.Error(), "namespace isolation failed") || strings.Contains(err.Error(), "operation not permitted")) && CheckInsideContainer() {
+		return "running inside Docker/container requires user namespace support. Start container with: docker run --security-opt seccomp=unconfined (or --cap-add=SYS_ADMIN)"
+	}
+
 	bin := cmdArgs[0]
 	binDir := filepath.Dir(bin)
 	if strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "operation not permitted") {
@@ -56,6 +60,23 @@ func HintFor(err error, cmdArgs []string) string {
 func CheckUbuntuAppArmorUserNS() bool {
 	data, err := os.ReadFile("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
 	return err == nil && strings.TrimSpace(string(data)) == "1"
+}
+
+// CheckInsideContainer checks if the current process is running inside a Docker or OCI container.
+func CheckInsideContainer() bool {
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	if _, err := os.Stat("/run/.containerenv"); err == nil {
+		return true
+	}
+	if data, err := os.ReadFile("/proc/1/cgroup"); err == nil {
+		content := string(data)
+		if strings.Contains(content, "docker") || strings.Contains(content, "containerd") || strings.Contains(content, "kubepods") {
+			return true
+		}
+	}
+	return false
 }
 
 // HintForSubcommand returns actionable remediation hints for subcommand-level failures.

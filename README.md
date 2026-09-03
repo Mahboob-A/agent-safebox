@@ -32,16 +32,26 @@ What actually happens when a command runs inside Safebox compared to running dir
 
 Install Safebox on any Linux system (x86_64 or ARM64) with a single command:
 
+**Install (latest stable release):**
 ```bash
-# Install (latest stable release)
 curl -fsSL https://safebox.mahboob.engineer/install.sh | bash
+```
 
-# Or pin to an exact release version
+**Or pin to an exact release version:**
+```bash
 curl -fsSL https://safebox.mahboob.engineer/install.sh | SAFEBOX_VERSION=v0.5.0 bash
+```
 
-# Fallback (direct GitHub Raw)
+**Fallback (direct GitHub Raw):**
+```bash
 curl -fsSL https://raw.githubusercontent.com/Mahboob-A/agent-safebox/main/install.sh | bash
 ```
+
+> [!NOTE]
+> **Running inside Docker:** Default Docker containers restrict nested user namespaces via seccomp. To run Safebox inside Docker, start your container with `--security-opt seccomp=unconfined`:
+> ```bash
+> docker run --rm -it --security-opt seccomp=unconfined ubuntu:24.04
+> ```
 
 Alternatively, compile directly from source (requires Go 1.24+):
 ```bash

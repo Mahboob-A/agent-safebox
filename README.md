@@ -73,15 +73,23 @@ safebox revert --yes
 
 ## Real-World Use Cases
 
-### 1. Autonomous AI Coding Agents (Zero-Flag Execution)
-Running agents like Claude Code, `agy`, Cursor, or Codex directly on your host gives them full write access to your environment. Safebox automatically detects the agent from `argv[0]` and loads built-in permission profiles:
+### 1. Autonomous AI Coding Agents
+Running agents like Claude Code, `agy`, Cursor, or Codex directly on your host gives them unrestricted write access to your environment. Safebox automatically detects the agent from `argv[0]`, loads built-in permission profiles, isolates the filesystem via Landlock and OverlayFS, and protects your host credentials.
+
+Because Safebox denies access to `$HOME` by default to protect sensitive files (`~/.ssh`, `~/.aws`), binaries installed in user directories (`~/.local/bin`, `~/.cargo/bin`) are granted read+execute access via `--allow-path`:
 
 ```bash
-# Safebox auto-detects agy, grants ~/.gemini state directory, and isolates everything else:
-safebox run -- agy "refactor the authentication handler"
+# Launch full interactive agy session:
+safebox run --allow-path=~/.local/bin -- agy
 
-# Safebox auto-detects claude, grants ~/.claude state, and confines writes to working directory:
-safebox run -- claude "fix bug in parser"
+# Run headless one-shot prompt:
+safebox run --allow-path=~/.local/bin -- agy -p "refactor the authentication handler"
+
+# Run with outbound network egress for agents requiring cloud LLM connectivity:
+safebox run --allow-net --allow-path=~/.local/bin -- agy -p "fetch dependencies and run analysis"
+
+# Run Claude Code in headless print mode:
+safebox run --allow-path=~/.local/bin -- claude -p "fix bug in parser"
 ```
 
 ### 2. Testing Untrusted GitHub Repositories & PRs
@@ -100,7 +108,7 @@ Inspect every single file modified or created during an agent session before app
 
 ```bash
 # 1. Let the agent work in the sandbox
-safebox run -- aider --message "implement user cache"
+safebox run --allow-net --allow-path=~/.local/bin -- aider --message "implement user cache"
 
 # 2. Inspect only the files in internal/
 safebox diff internal/

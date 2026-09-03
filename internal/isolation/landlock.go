@@ -40,11 +40,13 @@ func ApplyLandlock(allowPathsRO []string, allowPathsRW []string, allowFilesRW []
 		return fmt.Errorf("safebox: cannot resolve working directory: %w", err)
 	}
 
-	defaultRODirs := []string{"/usr", "/usr/local", "/lib", "/lib64", "/etc/ld.so.conf.d"}
+	defaultRODirs := []string{"/usr", "/usr/local", "/lib", "/lib64", "/etc/ld.so.conf.d", "/etc/ssl", "/etc/pki"}
 	allRODirs := append(defaultRODirs, allowPathsRO...)
 	roDirs := filterExisting(allRODirs)
 
 	roFiles := filterExisting([]string{
+		"/dev/urandom",
+		"/dev/random",
 		"/etc/ld.so.cache",
 		"/etc/ld.so.conf",
 		"/etc/nsswitch.conf",
@@ -69,7 +71,12 @@ func ApplyLandlock(allowPathsRO []string, allowPathsRW []string, allowFilesRW []
 		}
 	}
 
-	filteredFilesRW := filterExisting(allowFilesRW)
+	defaultRWFiles := filterExisting([]string{
+		"/dev/null",
+		"/dev/zero",
+	})
+	allRWFiles := append(defaultRWFiles, allowFilesRW...)
+	filteredFilesRW := filterExisting(allRWFiles)
 	for _, p := range allowFilesRW {
 		found := false
 		for _, f := range filteredFilesRW {
@@ -122,11 +129,13 @@ func ProbeLandlock(allowPathsRO, allowPathsRW, allowFilesRW []string) (ProbeRepo
 		return ProbeReport{}, fmt.Errorf("safebox: cannot resolve working directory: %w", err)
 	}
 
-	defaultRODirs := []string{"/usr", "/usr/local", "/lib", "/lib64", "/etc/ld.so.conf.d"}
+	defaultRODirs := []string{"/usr", "/usr/local", "/lib", "/lib64", "/etc/ld.so.conf.d", "/etc/ssl", "/etc/pki"}
 	allRODirs := append(defaultRODirs, allowPathsRO...)
 	roDirs := filterExisting(allRODirs)
 
 	roFiles := filterExisting([]string{
+		"/dev/urandom",
+		"/dev/random",
 		"/etc/ld.so.cache",
 		"/etc/ld.so.conf",
 		"/etc/nsswitch.conf",
@@ -138,7 +147,12 @@ func ProbeLandlock(allowPathsRO, allowPathsRW, allowFilesRW []string) (ProbeRepo
 	filteredRW := filterExisting(allowPathsRW)
 	rwPaths := append([]string{cwd}, filteredRW...)
 
-	filteredFilesRW := filterExisting(allowFilesRW)
+	defaultRWFiles := filterExisting([]string{
+		"/dev/null",
+		"/dev/zero",
+	})
+	allRWFiles := append(defaultRWFiles, allowFilesRW...)
+	filteredFilesRW := filterExisting(allRWFiles)
 
 	return ProbeReport{
 		WorkingDir:       cwd,

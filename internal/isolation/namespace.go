@@ -151,3 +151,11 @@ func ReexecChild(allowPathsRO, allowPathsRW, allowFilesRW, persistentStateMounts
 	}
 	return nil
 }
+
+// MountProc remounts a fresh instance of procfs over /proc inside the child's
+// private mount and PID namespace. This ensures /proc/self accurately points to
+// container PID 1 rather than host PID 1 (systemd), preventing crashes in runtimes
+// (such as Bun, WebKit, and Node) that assert on /proc/self status.
+func MountProc() error {
+	return syscall.Mount("proc", "/proc", "proc", syscall.MS_NOSUID|syscall.MS_NOEXEC|syscall.MS_NODEV, "")
+}

@@ -6,9 +6,7 @@ Safebox allows you to run untrusted CLI scripts, build tools, and autonomous AI 
 
 ---
 
-## Technical Guides & Architecture
-
-Looking for deep technical internals, execution flow diagrams, or contributor guides?
+## Deep Technical Internals, Execution Flow Diagrams, and Contributor Guides
 - **[System Architecture & File-by-File Internals](ARCHITECTURE.md)**: Process lifecycle diagrams, kernel isolation mechanics, package responsibilities, and complete file inventory.
 - **[Contributing Guide](CONTRIBUTING.md)**: Open-source developer guide and AI agent bootstrap protocol.
 
@@ -16,7 +14,7 @@ Looking for deep technical internals, execution flow diagrams, or contributor gu
 
 ---
 
-## The 30-Second Mental Model: Without Safebox vs. With Safebox
+## Without Safebox vs. With Safebox
 
 What actually happens when a command runs inside Safebox compared to running directly on your host?
 
@@ -29,7 +27,7 @@ What actually happens when a command runs inside Safebox compared to running dir
 
 ---
 
-## Get Your Hands Dirty in 60 Seconds
+## Play with Safebox
 
 ### 1. Build and Install
 Safebox has zero runtime dependencies and compiles into a single static binary:
@@ -43,45 +41,95 @@ cd agent-safebox
 go build -o /usr/local/bin/safebox .
 ```
 
-### 2. Run Your First Sandboxed Command
-The `--` delimiter separates Safebox flags from your command:
+### 2. Filesystem Change Capture (OverlayFS)
+Make changes inside the sandbox, inspect them from the host, and decide whether to keep or discard them:
 
 ```bash
-# Sandboxed hello world (runs in unprivileged user/mount/net namespaces)
-safebox run -- echo "Hello from Safebox!"
-```
-
-### 3. Test Filesystem Change Capture
-Make changes in the sandbox, inspect them, and decide whether to keep or discard them:
-
-```bash
-# 1. Modify or create a file inside the sandbox
+# Modify or create a file inside the sandbox (trapped in upper layer):
 safebox run -- touch experimental-feature.go
 
-# 2. Inspect the uncommitted changes from the host
+# Inspect the uncommitted changes from the host:
 safebox diff
 
-# 3. Choose your outcome:
-# Keep the changes and atomically commit them to host:
+# Choose your outcome:
+# Keep the changes and atomically commit them to the host:
 safebox apply --yes
 
-# Or discard everything cleanly with zero trace:
+# Or discard changes cleanly with zero trace:
 safebox revert --yes
+```
+
+### 3. Security & Boundary Lockdown (Landlock LSM)
+Safebox isolates the kernel filesystem, strictly denying access to sensitive host directories:
+
+```bash
+# Verify denied read access to host credentials (~/.ssh is blocked with EACCES):
+safebox run -- ls -la /root/.ssh
+
+# Verify denied write access to system configuration (/etc is write-protected):
+safebox run -- touch /etc/hacked.txt
+
+# Inspect effective policy and resolved allowlists without executing:
+safebox run --probe -- ls
+```
+
+### 4. Network Isolation & Controlled Egress (Userspace NAT)
+Sandboxed commands have zero network access by default, but outbound traffic can be safely enabled:
+
+```bash
+# Outbound network traffic is blocked by default (network is unreachable):
+safebox run -- ping -c 1 8.8.8.8
+
+# Resolve DNS queries via userspace NAT proxy (10.0.2.3):
+safebox run --allow-net -- getent hosts github.com
+
+# Verify HTTPS egress and TLS Root CA certificate validation:
+safebox run --allow-net -- curl -s -I https://github.com
+```
+
+### 5. Autonomous AI Coding Agents (Interactive & Headless)
+Run coding assistants with protected credentials and isolated persistent state:
+
+```bash
+# Launch full interactive agy session:
+safebox run --allow-path=~/.local/bin -- agy
+
+# Execute headless one-shot prompt:
+safebox run --allow-path=~/.local/bin -- agy -p "refactor authentication"
+
+# Run agent with outbound internet egress for cloud LLM token exchange:
+safebox run --allow-net --allow-path=~/.local/bin -- agy -p "fetch dependencies and run analysis"
+```
+
+### 6. POSIX Streams & Character Devices
+Safebox allows standard POSIX streams and CSPRNG reads out of the box:
+
+```bash
+# Read CSPRNG entropy and redirect POSIX streams cleanly:
+safebox run -- sh -c "cat /dev/null; head -c 4 /dev/urandom | xxd"
 ```
 
 ---
 
 ## Real-World Use Cases
 
-### 1. Autonomous AI Coding Agents (Zero-Flag Execution)
-Running agents like Claude Code, `agy`, Cursor, or Codex directly on your host gives them full write access to your environment. Safebox automatically detects the agent from `argv[0]` and loads built-in permission profiles:
+### 1. Autonomous AI Coding Agents
+Running agents like Claude Code, `agy`, Cursor, or Codex directly on your host gives them unrestricted write access to your environment. Safebox automatically detects the agent from `argv[0]`, loads built-in permission profiles, isolates the filesystem via Landlock and OverlayFS, and protects your host credentials.
+
+Because Safebox denies access to `$HOME` by default to protect sensitive files (`~/.ssh`, `~/.aws`), binaries installed in user directories (`~/.local/bin`, `~/.cargo/bin`) are granted read+execute access via `--allow-path`:
 
 ```bash
-# Safebox auto-detects agy, grants ~/.gemini state directory, and isolates everything else:
-safebox run -- agy "refactor the authentication handler"
+# Launch full interactive agy session:
+safebox run --allow-path=~/.local/bin -- agy
 
-# Safebox auto-detects claude, grants ~/.claude state, and confines writes to working directory:
-safebox run -- claude "fix bug in parser"
+# Run headless one-shot prompt:
+safebox run --allow-path=~/.local/bin -- agy -p "refactor the authentication handler"
+
+# Run with outbound network egress for agents requiring cloud LLM connectivity:
+safebox run --allow-net --allow-path=~/.local/bin -- agy -p "fetch dependencies and run analysis"
+
+# Run Claude Code in headless print mode:
+safebox run --allow-path=~/.local/bin -- claude -p "fix bug in parser"
 ```
 
 ### 2. Testing Untrusted GitHub Repositories & PRs
@@ -89,10 +137,10 @@ Safely clone and evaluate external repositories or pull requests without risking
 
 ```bash
 cd /tmp && mkdir -p untrusted-repo && cd untrusted-repo
-git clone https://github.com/someone/untrusted-tool.git .
+git clone --depth 1 https://github.com/codeplea/tinyexpr.git .
 
-# Build and test inside Safebox (cannot touch ~/.ssh, ~/.aws, or system files):
-safebox run -- make test
+# Safely compile and run test suite inside Safebox (cannot touch ~/.ssh, ~/.aws, or system files):
+safebox run -- make smoke
 ```
 
 ### 3. Reviewing AI Changes Before Host Commit
@@ -100,7 +148,7 @@ Inspect every single file modified or created during an agent session before app
 
 ```bash
 # 1. Let the agent work in the sandbox
-safebox run -- aider --message "implement user cache"
+safebox run --allow-net --allow-path=~/.local/bin -- aider --message "implement user cache"
 
 # 2. Inspect only the files in internal/
 safebox diff internal/

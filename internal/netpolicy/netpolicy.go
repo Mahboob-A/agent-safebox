@@ -1,9 +1,11 @@
 package netpolicy
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +20,7 @@ type NetConfig struct {
 	PinnedIPs      map[string][]string `json:"pinned_ips,omitempty"`
 	AllowedDomains []string            `json:"allowed_domains"`
 	BackendName    string              `json:"backend_name"` // "slirp4netns" | "pasta" | "builtin"
+	DNSIP          string              `json:"dns_ip,omitempty"`
 }
 
 // DiscoverBackend finds the first available userspace NAT backend.
@@ -101,6 +104,7 @@ func SetupEgress(allowDomains []string, allowNet bool, childPID int) (*NetConfig
 		GatewayPort:    53,
 		AllowedDomains: allowDomains,
 		BackendName:    backend,
+		DNSIP:          "10.0.2.3",
 	}
 	if pinSet != nil {
 		cfg.PinnedIPs = pinSet.ToMap()
@@ -194,8 +198,9 @@ func awaitReadyFD(readEnd *os.File, writeEnd *os.File, backendName string, pid i
 
 // spawnSlirp4netns attaches slirp4netns to the given child PID.
 // Correct invocation: slirp4netns [OPTION]... PID|PATH [TAPNAME]
-// We pass the child PID as the positional arg and "tap0" as the TAP name,
-// and use --ready-fd to confirm the backend has set up its TAP before returning.
+// We pass -c to configure the interface, the child PID as positional arg,
+// and "tap0" as the TAP name. We use --ready-fd to confirm the backend
+// has configured the network before returning.
 func spawnSlirp4netns(cfg *NetConfig, childPID int) (func() error, error) {
 	readyWrite, readyRead, err := makeReadyFD()
 	if err != nil {
@@ -205,13 +210,15 @@ func spawnSlirp4netns(cfg *NetConfig, childPID int) (func() error, error) {
 	// slirp4netns treats --ready-fd as an integer file descriptor number.
 	readyFDNum := 3
 	cmd := exec.Command("slirp4netns",
+		"-c",
 		"--mtu", "1500",
 		"--disable-host-loopback",
-		"--enable-dns",
 		fmt.Sprintf("--ready-fd=%d", readyFDNum),
 		fmt.Sprintf("%d", childPID),
 		"tap0",
 	)
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
 	cmd.ExtraFiles = []*os.File{readyWrite}
 	if err := cmd.Start(); err != nil {
 		readyWrite.Close()
@@ -224,6 +231,9 @@ func spawnSlirp4netns(cfg *NetConfig, childPID int) (func() error, error) {
 	if err := awaitReadyFD(readyRead, readyWrite, "slirp4netns", cmd.Process.Pid); err != nil {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		_, _ = cmd.Process.Wait()
+		if stderrBuf.Len() > 0 {
+			return nil, fmt.Errorf("%w (slirp4netns stderr: %s)", err, strings.TrimSpace(stderrBuf.String()))
+		}
 		return nil, err
 	}
 

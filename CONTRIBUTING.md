@@ -25,7 +25,7 @@ workspace/
 ```
 
 ### Critical Workspace Invariants:
-1. **`project-knowledge/` is Non-Git by Default**: Never track `project-knowledge/` inside the `safebox/` git repository. All AI session scratch pads, prompt notes, and progress logs must stay inside `project-knowledge/` and must never pollute `agent-safebox/`.
+1. **`project-knowledge/` is Non-Git by Default**: Never track `project-knowledge/` inside the `agent-safebox/` git repository. All AI session scratch pads, prompt notes, and progress logs must stay inside `project-knowledge/` and must never pollute `agent-safebox/`.
 2. **Git Commands Run Strictly in `agent-safebox/`**: Always execute git commands (`status`, `diff`, `commit`, `branch`, `push`) from within `/root/go-safebox/workspace/agent-safebox` (or the equivalent `agent-safebox/` root).
 3. **No AI Documentation in Core**: Never commit raw conversational logs, agent prompt histories, or verbose AI scratch notes to `agent-safebox/`.
 

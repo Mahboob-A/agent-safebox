@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -244,6 +245,10 @@ func TestApplyEgressConfig_ParsesValidJSON(t *testing.T) {
 
 	tr := trace.New(false)
 	if err := applyEgressConfig(cfgPath, tmpDir, etcRoot, tr); err != nil {
+		if os.Getuid() != 0 && (errors.Is(err, syscall.EPERM) || strings.Contains(err.Error(), "operation not permitted")) {
+			t.Skipf("skipping host bind-mount assertion in unprivileged test context: %v", err)
+			return
+		}
 		t.Errorf("applyEgressConfig failed: %v", err)
 	}
 	// Schedule unmount of the bind mounts so t.TempDir() cleanup succeeds.

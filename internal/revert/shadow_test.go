@@ -143,6 +143,9 @@ func TestScanShadowChangesWhiteoutDeleted(t *testing.T) {
 			t.Fatalf("failed to create directory %s: %v", d, err)
 		}
 	}
+	t.Cleanup(func() {
+		_ = SafeRemoveAll(workDir)
+	})
 
 	victimPath := filepath.Join(lowerDir, "victim.txt")
 	if err := os.WriteFile(victimPath, []byte("victim to delete\n"), 0600); err != nil {

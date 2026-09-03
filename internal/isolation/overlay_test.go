@@ -135,6 +135,9 @@ func TestMountOverlaySubprocess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create overlay dirs: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = CleanupOverlayDirs(sessionDir)
+	})
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestMountOverlaySubprocess")
 	cmd.Env = append(os.Environ(),
@@ -234,6 +237,9 @@ func TestMountSessionOverlaySubprocess(t *testing.T) {
 	if err := os.MkdirAll(workDir, 0700); err != nil {
 		t.Fatalf("failed to create workDir: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = CleanupOverlayDirs(tmpDir)
+	})
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestMountSessionOverlaySubprocess")
 	cmd.Env = append(os.Environ(),

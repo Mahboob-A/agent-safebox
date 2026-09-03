@@ -79,7 +79,7 @@ func PruneSessions(maxAge time.Duration) (int, error) {
 		sess, err := LoadSession(sessDir)
 		if err != nil {
 			if fi, sErr := entry.Info(); sErr == nil && now.Sub(fi.ModTime()) > maxAge {
-				_ = os.RemoveAll(sessDir)
+				_ = SafeRemoveAll(sessDir)
 				prunedCount++
 			}
 			continue
@@ -240,12 +240,51 @@ func MostRecentSession(targetDir string, strict bool) (*Session, error) {
 	return matching[0], nil
 }
 
+// SafeRemoveAll deletes path, ensuring any restrictive directories created by
+// the Linux kernel OverlayFS driver (such as work/work with mode 0000) are chmod'd
+// to 0700 so unprivileged processes can traverse and remove them without permission denied errors.
+func SafeRemoveAll(path string) error {
+	if path == "" {
+		return nil
+	}
+	// Pre-emptively make OverlayFS work directory accessible
+	workDir := filepath.Join(path, "work")
+	_ = os.Chmod(workDir, 0700)
+	_ = os.Chmod(filepath.Join(workDir, "work"), 0700)
+
+	err := os.RemoveAll(path)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	// If RemoveAll failed (e.g. permission denied on restrictive subdirs), recursively fix permissions and retry
+	_ = makeTreeRemovable(path)
+	return os.RemoveAll(path)
+}
+
+func makeTreeRemovable(dir string) error {
+	_ = os.Chmod(dir, 0700)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		sub := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			_ = makeTreeRemovable(sub)
+		} else {
+			_ = os.Chmod(sub, 0600)
+		}
+	}
+	return nil
+}
+
 // DiscardSession purges the session base directory and all its contents.
 func DiscardSession(session *Session) error {
 	if session == nil || session.BaseDir == "" {
 		return nil
 	}
-	return os.RemoveAll(session.BaseDir)
+	return SafeRemoveAll(session.BaseDir)
 }
 
 // IsActive checks whether the session is currently locked by a live process.

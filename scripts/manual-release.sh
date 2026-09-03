@@ -24,8 +24,8 @@ echo "========================================================"
 
 # 1. Run rule verification
 echo "[1/4] Running code and rule checks..."
-if [ -f "$REPO_ROOT/.agents/skills/code-review/scripts/check-rules.sh" ]; then
-  bash "$REPO_ROOT/.agents/skills/code-review/scripts/check-rules.sh"
+if [ -f "$REPO_ROOT/scripts/check-rules.sh" ]; then
+  bash "$REPO_ROOT/scripts/check-rules.sh"
 fi
 
 # 2. Run unit tests

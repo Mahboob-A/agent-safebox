@@ -120,6 +120,20 @@ func TestHintFor_PersistentStateMount(t *testing.T) {
 }
 
 
+func TestCheckInsideContainer(t *testing.T) {
+	_ = CheckInsideContainer()
+}
+
+func TestHintFor_ContainerNamespaceIsolation(t *testing.T) {
+	err := errors.New("safebox: namespace isolation failed: fork/exec /usr/local/bin/safebox: operation not permitted")
+	if CheckInsideContainer() {
+		hint := HintFor(err, []string{"echo"})
+		if !strings.Contains(hint, "seccomp=unconfined") {
+			t.Errorf("expected Docker seccomp hint, got %q", hint)
+		}
+	}
+}
+
 func TestCLIProfile_UnknownSubcommand(t *testing.T) {
 	tr := trace.New(false)
 	code := Dispatch([]string{"profile", "invalid_subcmd"}, tr)

@@ -68,6 +68,14 @@ func RunChild(args []string, _ *trace.Tracer) int {
 		}
 	}
 
+	// Remount procfs over /proc inside the child mount and PID namespace so that
+	// /proc/self accurately points to container PID 1 rather than host PID 1
+	// (systemd). This prevents crashes in runtimes (such as Bun, WebKit, and
+	// Node) that assert on /proc/self status.
+	_ = tr.Step("procfs mount", func() error {
+		return isolation.MountProc()
+	})
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s safebox: cannot resolve current directory: %v\n", ui.StyleDenied.Render("ERROR"), err)

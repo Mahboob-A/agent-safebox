@@ -10,8 +10,9 @@ Safebox allows you to run untrusted CLI scripts, build tools, and autonomous AI 
 
 Looking for deep technical internals, execution flow diagrams, or contributor guides?
 - **[System Architecture & File-by-File Internals](ARCHITECTURE.md)**: Process lifecycle diagrams, kernel isolation mechanics, package responsibilities, and complete file inventory.
-- **[Contributing Guide](CONTRIBUTING.md)**: Open-source developer setup, PR guidelines, testing battery, and commit standards.
-- **[Dedicated Documentation Repository](https://github.com/Mahboob-A/docs-agent-safebox)**: Full project specifications, requirements (SRS), bug reports, and recovery case studies.
+- **[Contributing Guide](CONTRIBUTING.md)**: Open-source developer guide and AI agent bootstrap protocol.
+
+> **Working with an AI coding agent?** Point your agent directly to **[CONTRIBUTING.md](CONTRIBUTING.md)** to automatically bootstrap the recommended workspace layout and agent guidelines.
 
 ---
 

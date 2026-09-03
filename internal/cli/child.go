@@ -187,7 +187,11 @@ func applyEgressConfig(netConfigPath, tmpDirBase, etcRoot string, tr *trace.Trac
 			return fmt.Errorf("mount %s: %w", hostsPath, err)
 		}
 
-		resolvContent := fmt.Sprintf("nameserver %s\noptions edns0\n", gateway)
+		dnsServer := cfg.DNSIP
+		if dnsServer == "" {
+			dnsServer = gateway
+		}
+		resolvContent := fmt.Sprintf("nameserver %s\noptions edns0\n", dnsServer)
 		if err := mountEtcFile(resolvPath, []byte(resolvContent), tmpDirBase); err != nil {
 			return fmt.Errorf("mount %s: %w", resolvPath, err)
 		}

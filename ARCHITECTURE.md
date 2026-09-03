@@ -100,6 +100,18 @@ sequenceDiagram
 - To prevent DNS poisoning or host network corruption, Safebox never writes to the host `/etc/resolv.conf` or `/etc/hosts`.
 - Instead, Safebox creates synthetic temporary files in `/tmp`, bind-mounts them inside the child mount namespace, and immediately unlinks the temporary files from the host filesystem.
 
+### 3.5 Userspace Networking & NAT Subsystem
+Safebox provides controlled outbound internet connectivity via userspace Network Address Translation (NAT) without exposing host network interfaces or requiring root network privileges (`CAP_NET_ADMIN`):
+- **Backend Selection Hierarchy**: When `--allow-net` is specified, Safebox probes backends in priority order: `pasta` -> `slirp4netns` -> `builtin` (pure-Go Layer 2 TAP forwarder). On Linux distributions where `pasta` is not installed, Safebox automatically selects `slirp4netns`.
+- **Namespace Attachment Protocol**: The parent supervisor spawns the child in an empty network namespace (`CLONE_NEWNET`) and creates a synchronization pipe (`--ready-fd`). The parent attaches the forwarder to the child PID:
+  ```bash
+  slirp4netns -c --mtu 1500 --disable-host-loopback --ready-fd=3 <childPID> tap0
+  ```
+- **Interface Configuration (`-c`)**: The `-c` (`--configure`) option automatically brings up the `tap0` interface inside the container, assigns IP address `10.0.2.100`, and sets default gateway `10.0.2.2`.
+- **Virtual DNS Proxy (`10.0.2.3`)**: In `slirp4netns`, `10.0.2.3` is an internal virtual IP simulated in user space that acts as a local DNS proxy. Inside the child, a synthetic `/etc/resolv.conf` with `nameserver 10.0.2.3` is bind-mounted. DNS queries on port 53 are intercepted and forwarded to the host DNS servers outside the container.
+- **Host Loopback Protection**: Safebox passes `--disable-host-loopback`, strictly forbidding the container from connecting to `127.0.0.1` on the host, preventing access to host databases, redis instances, or internal services.
+- **TLS Root CA Certificate Access**: Landlock default read allowlists include `/etc/ssl` and `/etc/pki`, allowing HTTPS clients (`curl`, `git`, `agy`, Python) to verify TLS certificates against host root CAs without manual path flags.
+
 ---
 
 ## 4. Modular Package Map
@@ -197,7 +209,7 @@ The `safebox` codebase is structured into eight modular Go packages with strict 
 
 ---
 
-## 4. Concrete Execution Deep-Dive: Running an Autonomous Coding Agent
+## 5. Concrete Execution Deep-Dive: Running an Autonomous Coding Agent
 
 To understand how these isolation primitives cooperate during real-world usage, consider what happens when a developer launches an autonomous coding agent such as `agy` (Antigravity CLI) inside Safebox:
 
@@ -205,7 +217,7 @@ To understand how these isolation primitives cooperate during real-world usage, 
 safebox run --allow-net --allow-path=/root/.local/bin -- agy
 ```
 
-### 4.1 Step 1: Profile Resolution & Session Setup (Parent Process)
+### 5.1 Step 1: Profile Resolution & Session Setup (Parent Process)
 1. **Profile Lookup**: Safebox inspects `argv[0]` (`agy`), matches the built-in profile `internal/profiles/builtin/agy.toml`, and extracts:
    - Persistent state mount: `$HOME/.gemini`
    - Persistent state storage directory: `$XDG_STATE_HOME/safebox/agents/agy`
@@ -218,7 +230,7 @@ safebox run --allow-net --allow-path=/root/.local/bin -- agy
    - `sess-demo-12345/session.json`: Session metadata recording lower directory, upper directory, and timestamp.
    - `sess-demo-12345/netconfig.json`: Network configuration specifying userspace NAT parameters (gateway `10.0.2.2`, DNS `10.0.2.3`).
 
-### 4.2 Step 2: Namespace Creation & Child Spawn
+### 5.2 Step 2: Namespace Creation & Child Spawn
 Safebox spawns the child process via `clone` with six unprivileged Linux namespace flags:
 - `CLONE_NEWUSER`: Maps host UID/GID to container root UID 0 without host root privileges.
 - `CLONE_NEWNS`: Creates a completely independent, private mount table for the container.
@@ -227,7 +239,7 @@ Safebox spawns the child process via `clone` with six unprivileged Linux namespa
 - `CLONE_NEWIPC`: Isolates POSIX message queues and shared memory.
 - `CLONE_NEWUTS`: Isolates hostname configuration.
 
-### 4.3 Step 3: Container Filesystem Assembly (Child Execution Sequence)
+### 5.3 Step 3: Container Filesystem Assembly (Child Execution Sequence)
 Inside the child process, before any agent code executes:
 1. **Userspace NAT & Egress**: The parent attaches `slirp4netns` to the child network namespace with `-c` and `--disable-host-loopback`. Inside the child, `applyEgressConfig` bind-mounts a synthetic `/etc/resolv.conf` (pointing to virtual DNS proxy `10.0.2.3`) and `/etc/hosts`.
 2. **Fresh Procfs Mount**: `isolation.MountProc()` mounts a fresh `procfs` over `/proc`. This ensures `/proc/self` maps accurately to container PID 1 rather than host PID 1 (`systemd`), preventing crashes in runtimes (such as Bun, WebKit, and Node) that assert on `/proc/self` state.
@@ -244,7 +256,7 @@ Inside the child process, before any agent code executes:
    - **Strict Deny**: The remainder of `/root` (including `/root/.ssh`, `/root/.bashrc`, and `/root/other-projects`) returns `EACCES`.
 7. **Exec Handoff**: The child hands execution over to `agy`.
 
-### 4.4 Step 4: Live File Routing & Change Tracking
+### 5.4 Step 4: Live File Routing & Change Tracking
 Assume the agent is asked to create a system design plan and then implement a server:
 
 1. **Agent Writes an Artifact (`/plan`)**:
@@ -274,7 +286,7 @@ Assume the agent is asked to create a system design plan and then implement a se
 
 ---
 
-## 5. Architectural FAQ
+## 6. Architectural FAQ
 
 ### Q1: Where is the OverlayFS present, and why does `/tmp/safebox/sessions/.../merged` appear empty when inspected from a host terminal?
 In Linux, mounts created inside a process that has called `clone` with `CLONE_NEWNS` (private mount namespace) are attached exclusively to that process mount table.

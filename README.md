@@ -1,4 +1,16 @@
+<p align="center">
+  <img width="700" height="500" alt="safebox-github-image" src="https://github.com/user-attachments/assets/bcdd552f-5eeb-4801-bc99-36405e52a3b2" />
+</p>
+
 # Safebox
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.24+-00ADD8.svg" alt="Go">
+  <img src="https://img.shields.io/badge/Bash-5.0+-121011.svg" alt="Bash">
+  <img src="https://img.shields.io/badge/Platform-Linux-FCC624.svg" alt="Linux">
+  <img src="https://img.shields.io/badge/Release-v0.5.1-2B4A3A.svg" alt="Release">
+  <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
+</p>
 
 **An unprivileged, microsecond-latency Linux sandbox and change-management engine for autonomous AI coding agents and developer commands.**
 

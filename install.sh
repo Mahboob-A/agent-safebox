@@ -139,9 +139,19 @@ case ":$PATH:" in
     echo "Notice: $BIN_HOME is not currently in your PATH."
     echo "Add it to your shell configuration to run 'safebox' from anywhere:"
     case "${SHELL:-}" in
-      */zsh)  echo "  echo 'export PATH="$BIN_HOME:\$PATH"' >> ~/.zshrc && exec zsh" ;;
-      */bash) echo "  echo 'export PATH="$BIN_HOME:\$PATH"' >> ~/.bashrc && exec bash" ;;
-      *)      echo "  export PATH="$BIN_HOME:\$PATH" (add to your shell rc file)" ;;
+      */zsh)  echo "  echo 'export PATH=\"$BIN_HOME:\$PATH\"' >> ~/.zshrc && exec zsh" ;;
+      */bash) echo "  echo 'export PATH=\"$BIN_HOME:\$PATH\"' >> ~/.bashrc && exec bash" ;;
+      *)      echo "  export PATH=\"$BIN_HOME:\$PATH\" (add to your shell rc file)" ;;
     esac
     ;;
 esac
+
+# 10. Check Ubuntu 24.04+ Unprivileged User Namespace Policy
+if [ -f "/proc/sys/kernel/apparmor_restrict_unprivileged_userns" ]; then
+  if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+    echo
+    echo "Notice: Ubuntu 24.04+ unprivileged user namespace restriction is active."
+    echo "To allow unprivileged sandboxing without sudo, run once:"
+    echo "  sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"
+  fi
+fi

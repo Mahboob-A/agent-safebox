@@ -38,6 +38,10 @@ func HintFor(err error, cmdArgs []string) string {
 		return persistMountErr.Hint()
 	}
 
+	if CheckUbuntuAppArmorUserNS() && (strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "namespace isolation failed")) {
+		return "Ubuntu 24.04+ has restricted unprivileged user namespaces. Run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"
+	}
+
 	bin := cmdArgs[0]
 	binDir := filepath.Dir(bin)
 	if strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "operation not permitted") {
@@ -46,6 +50,12 @@ func HintFor(err error, cmdArgs []string) string {
 		}
 	}
 	return ""
+}
+
+// CheckUbuntuAppArmorUserNS checks if Ubuntu 24.04+ has restricted unprivileged user namespaces.
+func CheckUbuntuAppArmorUserNS() bool {
+	data, err := os.ReadFile("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+	return err == nil && strings.TrimSpace(string(data)) == "1"
 }
 
 // HintForSubcommand returns actionable remediation hints for subcommand-level failures.

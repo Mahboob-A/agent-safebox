@@ -48,8 +48,14 @@ Make changes inside the sandbox, inspect them from the host, and decide whether 
 # Modify or create a file inside the sandbox (trapped in upper layer):
 safebox run -- touch experimental-feature.go
 
-# Inspect the uncommitted changes from the host:
+# Inspect the uncommitted change summary from the host:
 safebox diff
+
+# Inspect line-by-line unified diff of all staged changes:
+safebox diff -p
+
+# Inspect the exact content of any staged file:
+safebox cat experimental-feature.go
 
 # Choose your outcome:
 # Keep the changes and atomically commit them to the host:

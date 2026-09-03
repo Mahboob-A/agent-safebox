@@ -146,7 +146,9 @@ The `safebox` codebase is structured into eight modular Go packages with strict 
 - `parser_test.go`: Unit test suite for flag tokenization and validation edge cases.
 - `run.go`: Parent supervisor runner setting up namespaces, NAT, sessions, and child processes.
 - `child.go`: Containerized child entrypoint executing mounts, Landlock restrictions, and PID 1 shim.
-- `diff.go`: Change inspection runner formatting status markers (`+`, `~`, `-`).
+- `diff.go`: Change inspection runner formatting status markers (`+`, `~`, `-`) and unified diffs.
+- `cat.go`: Staged file content streaming runner reading from active session upper layer or host.
+- `cat_test.go`: Unit tests for file inspection, flag handling, and directory traversal.
 - `apply.go`: Atomic staging runner promoting OverlayFS upper modifications to the host.
 - `revert.go`: Session discard runner purging OverlayFS layers and restoring baseline.
 - `probe.go`: Pre-flight inspection runner displaying effective allowlists without execution.
@@ -190,6 +192,8 @@ The `safebox` codebase is structured into eight modular Go packages with strict 
 - `session_test.go`: Tests for lockfile acquisition, collision prevention, and stale PID recovery.
 - `diff.go`: Filesystem comparator walking lower and upper layers to compute change sets.
 - `diff_test.go`: Tests verifying change detection for additions, modifications, and deletions.
+- `patch.go`: Pure-Go unified diff engine computing LCS line-by-line diffs and git-style hunks.
+- `patch_test.go`: Tests asserting unified patch generation for added, modified, deleted, and binary files.
 - `filter.go`: Path filter evaluator restricting diffs to specified directory subtrees.
 - `shadow_apply.go`: Atomic staging applier handling cross-filesystem copies and whiteouts.
 - `shadow_apply_test.go`: Tests verifying atomic commit and directory whiteout cleanup.

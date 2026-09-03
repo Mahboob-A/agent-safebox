@@ -26,8 +26,12 @@ Commands:
           is planned for v0.5; --allow-network=<domain> is no longer accepted.
           --probe prints the effective policy and exits without executing.
 
-  diff    [--quiet|-q] [paths...]
+  diff    [--quiet|-q] [-p|--patch] [paths...]
           Show what changed in the active sandbox session (non-blocking).
+          Use -p or --patch to display a unified line-by-line diff.
+
+  cat     [-h|--help] <file...>
+          Print the contents of a staged file from the active session (or host).
 
   revert  [--quiet|-q] [--yes|-y] [--force-discard]
           Discard the active sandbox session without applying changes.

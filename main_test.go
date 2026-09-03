@@ -566,6 +566,109 @@ func TestCLISandboxRunAndDiff(t *testing.T) {
 	}
 }
 
+func TestCLIDiffPatch(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+
+	sessRoot := t.TempDir()
+	t.Setenv("SAFEBOX_SESSION_ROOT", sessRoot)
+
+	sessDir := filepath.Join(sessRoot, "sess-test-diff-patch")
+	upperDir := filepath.Join(sessDir, "upper")
+	workDir := filepath.Join(sessDir, "work")
+	mergedDir := filepath.Join(sessDir, "merged")
+	for _, d := range []string{upperDir, workDir, mergedDir} {
+		if err := os.MkdirAll(d, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	newFilePath := filepath.Join(upperDir, "created.txt")
+	if err := os.WriteFile(newFilePath, []byte("line1\nline2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	meta := fmt.Sprintf(`{"id":"sess-test-diff-patch","base_dir":%q,"lower_dir":%q,"upper_dir":%q,"work_dir":%q,"merged_dir":%q,"created_at":"2026-09-03T10:00:00Z"}`,
+		sessDir, dir, upperDir, workDir, mergedDir)
+	if err := os.WriteFile(filepath.Join(sessDir, "session.json"), []byte(meta), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. safebox diff -p
+	out, err := runCLIInDir(dir, "diff", "-p")
+	if err != nil {
+		t.Fatalf("safebox diff -p failed: %v, output: %s", err, string(out))
+	}
+	outStr := string(out)
+	if !strings.Contains(outStr, "diff --git a/created.txt b/created.txt") {
+		t.Errorf("expected diff header for created.txt, got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "+++ b/created.txt") || !strings.Contains(outStr, "+line1") {
+		t.Errorf("expected added content in patch, got: %s", outStr)
+	}
+
+	// 2. safebox diff --patch with specific path
+	outPath, errPath := runCLIInDir(dir, "diff", "--patch", "created.txt")
+	if errPath != nil {
+		t.Fatalf("safebox diff --patch created.txt failed: %v, output: %s", errPath, string(outPath))
+	}
+	if !strings.Contains(string(outPath), "+++ b/created.txt") {
+		t.Errorf("expected patch for created.txt with filter, got: %s", string(outPath))
+	}
+}
+
+func TestCLICat(t *testing.T) {
+	dir := setupCLITestGitRepo(t)
+
+	sessRoot := t.TempDir()
+	t.Setenv("SAFEBOX_SESSION_ROOT", sessRoot)
+
+	sessDir := filepath.Join(sessRoot, "sess-test-cat")
+	upperDir := filepath.Join(sessDir, "upper")
+	workDir := filepath.Join(sessDir, "work")
+	mergedDir := filepath.Join(sessDir, "merged")
+	for _, d := range []string{upperDir, workDir, mergedDir} {
+		if err := os.MkdirAll(d, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stagedContent := "staged in upper\nsecond line\n"
+	stagedFile := filepath.Join(upperDir, "server.go")
+	if err := os.WriteFile(stagedFile, []byte(stagedContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	meta := fmt.Sprintf(`{"id":"sess-test-cat","base_dir":%q,"lower_dir":%q,"upper_dir":%q,"work_dir":%q,"merged_dir":%q,"created_at":"2026-09-03T10:00:00Z"}`,
+		sessDir, dir, upperDir, workDir, mergedDir)
+	if err := os.WriteFile(filepath.Join(sessDir, "session.json"), []byte(meta), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. safebox cat -q server.go (from active session upper layer)
+	out, err := runCLIInDir(dir, "cat", "-q", "server.go")
+	if err != nil {
+		t.Fatalf("safebox cat server.go failed: %v, output: %s", err, string(out))
+	}
+	if string(out) != stagedContent {
+		t.Errorf("expected %q, got %q", stagedContent, string(out))
+	}
+
+	// 2. safebox cat -q initial.txt (from host baseline)
+	outHost, errHost := runCLIInDir(dir, "cat", "-q", "initial.txt")
+	if errHost != nil {
+		t.Fatalf("safebox cat initial.txt failed: %v, output: %s", errHost, string(outHost))
+	}
+	if !strings.Contains(string(outHost), "initial content") {
+		t.Errorf("expected initial content from host, got: %s", string(outHost))
+	}
+
+	// 3. safebox cat missing.txt (returns error)
+	_, errMissing := runCLIInDir(dir, "cat", "missing.txt")
+	if errMissing == nil {
+		t.Errorf("expected error for missing file, got nil")
+	}
+}
+
 func TestCLIDiffFromSubdirectory(t *testing.T) {
 	dir := setupCLITestGitRepo(t)
 	subDir := filepath.Join(dir, "sub", "nested")

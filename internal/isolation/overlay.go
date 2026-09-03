@@ -40,7 +40,34 @@ func CleanupOverlayDirs(baseDir string) error {
 	if baseDir == "" {
 		return nil
 	}
+	// Pre-emptively make OverlayFS work directory accessible
+	workDir := filepath.Join(baseDir, "work")
+	_ = os.Chmod(workDir, 0700)
+	_ = os.Chmod(filepath.Join(workDir, "work"), 0700)
+
+	err := os.RemoveAll(baseDir)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	_ = makeTreeRemovable(baseDir)
 	return os.RemoveAll(baseDir)
+}
+
+func makeTreeRemovable(dir string) error {
+	_ = os.Chmod(dir, 0700)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		sub := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			_ = makeTreeRemovable(sub)
+		} else {
+			_ = os.Chmod(sub, 0600)
+		}
+	}
+	return nil
 }
 
 // MountOverlay mounts an OverlayFS filesystem on TargetDir using LowerDir (RO), UpperDir (RW), and WorkDir.

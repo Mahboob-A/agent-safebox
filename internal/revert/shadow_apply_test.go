@@ -146,6 +146,9 @@ func TestApplyShadowChanges_Subprocess(t *testing.T) {
 			t.Fatalf("failed to create dir %s: %v", d, err)
 		}
 	}
+	t.Cleanup(func() {
+		_ = SafeRemoveAll(workDir)
+	})
 
 	// Setup initial lower files
 	if err := os.WriteFile(filepath.Join(lowerDir, "base.txt"), []byte("original base\n"), 0600); err != nil {
@@ -349,6 +352,9 @@ func TestApplyShadowChangesRemovesDirectoriesRecursively_Subprocess(t *testing.T
 			t.Fatalf("failed to create dir %s: %v", d, err)
 		}
 	}
+	t.Cleanup(func() {
+		_ = SafeRemoveAll(workDir)
+	})
 
 	// Initial tree in lower
 	targetDir := filepath.Join(lowerDir, "tree_to_delete", "nested")

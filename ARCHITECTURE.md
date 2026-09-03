@@ -193,3 +193,116 @@ The `safebox` codebase is structured into eight modular Go packages with strict 
 - `trace_test.go`: Tests for step timing accuracy and output formatting.
 - `styles.go`: Lipgloss styling definitions, color tokens, and visual badges.
 - `styles_test.go`: Tests verifying terminal escape sequence generation.
+
+
+---
+
+## 4. Concrete Execution Deep-Dive: Running an Autonomous Coding Agent
+
+To understand how these isolation primitives cooperate during real-world usage, consider what happens when a developer launches an autonomous coding agent such as `agy` (Antigravity CLI) inside Safebox:
+
+```bash
+safebox run --allow-net --allow-path=/root/.local/bin -- agy
+```
+
+### 4.1 Step 1: Profile Resolution & Session Setup (Parent Process)
+1. **Profile Lookup**: Safebox inspects `argv[0]` (`agy`), matches the built-in profile `internal/profiles/builtin/agy.toml`, and extracts:
+   - Persistent state mount: `$HOME/.gemini`
+   - Persistent state storage directory: `$XDG_STATE_HOME/safebox/agents/agy`
+   - Network egress toggle: `allow_net = true`
+2. **Session Allocation**: Safebox creates an ephemeral session directory under `$SAFEBOX_SESSION_ROOT` (assume the directory is `/tmp/safebox/sessions/sess-demo-12345/`).
+   - `sess-demo-12345/active`: Holds the child PID lock to prevent accidental concurrent deletion.
+   - `sess-demo-12345/upper`: Dedicated OverlayFS delta layer capturing all working directory writes.
+   - `sess-demo-12345/work`: Dedicated OverlayFS scratchpad directory for atomic rename operations.
+   - `sess-demo-12345/merged`: Empty mountpoint directory on the host where OverlayFS will be attached inside the container.
+   - `sess-demo-12345/session.json`: Session metadata recording lower directory, upper directory, and timestamp.
+   - `sess-demo-12345/netconfig.json`: Network configuration specifying userspace NAT parameters (gateway `10.0.2.2`, DNS `10.0.2.3`).
+
+### 4.2 Step 2: Namespace Creation & Child Spawn
+Safebox spawns the child process via `clone` with six unprivileged Linux namespace flags:
+- `CLONE_NEWUSER`: Maps host UID/GID to container root UID 0 without host root privileges.
+- `CLONE_NEWNS`: Creates a completely independent, private mount table for the container.
+- `CLONE_NEWPID`: Places the child process into a fresh PID hierarchy where the child is PID 1.
+- `CLONE_NEWNET`: Disconnects host networking interfaces, leaving only loopback.
+- `CLONE_NEWIPC`: Isolates POSIX message queues and shared memory.
+- `CLONE_NEWUTS`: Isolates hostname configuration.
+
+### 4.3 Step 3: Container Filesystem Assembly (Child Execution Sequence)
+Inside the child process, before any agent code executes:
+1. **Userspace NAT & Egress**: The parent attaches `slirp4netns` to the child network namespace with `-c` and `--disable-host-loopback`. Inside the child, `applyEgressConfig` bind-mounts a synthetic `/etc/resolv.conf` (pointing to virtual DNS proxy `10.0.2.3`) and `/etc/hosts`.
+2. **Fresh Procfs Mount**: `isolation.MountProc()` mounts a fresh `procfs` over `/proc`. This ensures `/proc/self` maps accurately to container PID 1 rather than host PID 1 (`systemd`), preventing crashes in runtimes (such as Bun, WebKit, and Node) that assert on `/proc/self` state.
+3. **OverlayFS Mount**: Safebox mounts `overlay` over `merged/` combining:
+   - Lower layer: Assume host working directory `/root/demo-project/` (read-only).
+   - Upper layer: `/tmp/safebox/sessions/sess-demo-12345/upper` (read-write).
+   - Work layer: `/tmp/safebox/sessions/sess-demo-12345/work`.
+4. **Working Directory Shift**: The child changes directory (`os.Chdir`) into `merged/`.
+5. **Persistent State Bind-Mount**: Safebox bind-mounts the persistent host directory `/root/.local/share/safebox/agents/agy` directly onto `/root/.gemini` inside the container.
+6. **Landlock LSM Lockdown**: `isolation.ApplyLandlock()` activates kernel filesystem access control:
+   - **Read-Write**: `merged/` (working directory) and `/root/.gemini` (persistent state).
+   - **Read-Only**: System libraries (`/usr`, `/lib`, `/lib64`), root certificates (`/etc/ssl`, `/etc/pki`), character devices (`/dev/urandom`, `/dev/random`), and explicitly allowed binaries (`--allow-path=/root/.local/bin`).
+   - **Read-Write Character Devices**: `/dev/null` and `/dev/zero`.
+   - **Strict Deny**: The remainder of `/root` (including `/root/.ssh`, `/root/.bashrc`, and `/root/other-projects`) returns `EACCES`.
+7. **Exec Handoff**: The child hands execution over to `agy`.
+
+### 4.4 Step 4: Live File Routing & Change Tracking
+Assume the agent is asked to create a system design plan and then implement a server:
+
+1. **Agent Writes an Artifact (`/plan`)**:
+   - The agent writes to its internal brain directory: Assume `~/.gemini/antigravity-cli/brain/demo-uuid-456/system_design_plan.md`.
+   - **Routing**: Because `~/.gemini` was bind-mounted to `$XDG_STATE_HOME/safebox/agents/agy`, this file is physically written to:
+     ```
+     /root/.local/share/safebox/agents/agy/antigravity-cli/brain/demo-uuid-456/system_design_plan.md
+     ```
+   - **Host Protection**: The host real `/root/.gemini` directory is completely untouched.
+   - **Working Directory Status**: Because this write occurred under `~/.gemini` rather than the working directory, the session `upper/` directory remains clean.
+
+2. **Agent Writes Code Files (`write_to_file`)**:
+   - Assume the agent now creates `server.go` in the project directory.
+   - **Routing**: Because the working directory is an OverlayFS merged view, the Linux kernel diverts the write into the upper layer:
+     ```
+     /tmp/safebox/sessions/sess-demo-12345/upper/server.go
+     ```
+   - **Host Protection**: The host directory `/root/demo-project/` still does NOT have `server.go`.
+   - **Host Inspection**: From another terminal on the host, the developer runs:
+     ```bash
+     safebox diff
+     # Output: + [ADDED] server.go
+     ```
+   - **Commit or Discard**:
+     - `safebox apply --yes`: Atomically copies `server.go` from `upper/` to `/root/demo-project/`.
+     - `safebox revert --yes`: Discards the session and wipes `upper/`, leaving the host workspace pristine.
+
+---
+
+## 5. Architectural FAQ
+
+### Q1: Where is the OverlayFS present, and why does `/tmp/safebox/sessions/.../merged` appear empty when inspected from a host terminal?
+In Linux, mounts created inside a process that has called `clone` with `CLONE_NEWNS` (private mount namespace) are attached exclusively to that process mount table.
+- From the host namespace, `/tmp/safebox/sessions/.../merged` is simply an empty directory acting as an inactive mountpoint.
+- Inside the sandboxed container namespace, the kernel OverlayFS driver is actively mounted on `merged/`, presenting a unified view of the host project files plus any session writes.
+- To inspect changes from the host, use `safebox diff` or inspect `/tmp/safebox/sessions/.../upper/` directly.
+
+### Q2: Where do AI coding agents store artifacts and login tokens, and why is the host real `~/.gemini` or `~/.claude` untouched?
+Autonomous agents frequently persist authentication tokens, conversation histories, and plan artifacts in configuration folders under `$HOME` (e.g., `~/.gemini`, `~/.claude`, `~/.config/aider`).
+- Safebox defines persistent state mappings in `internal/profiles/builtin/<agent>.toml`.
+- Before Landlock lockdown, Safebox bind-mounts `$XDG_STATE_HOME/safebox/agents/<agent>/` over the tool configuration directory inside the child mount namespace.
+- All session writes to `~/.gemini` are transparently directed into the isolated persistent state directory on the host. The host real `~/.gemini` is never exposed or modified.
+
+### Q3: Why is the session `upper/` directory empty during an agent planning or conversation phase?
+The OverlayFS `upper/` directory records modifications strictly to the working directory (`cwd`).
+- When an agent runs `/plan` or discusses requirements, its artifacts and conversation transcripts are stored within its persistent state directory (e.g., `~/.gemini/antigravity-cli/brain/`).
+- Until the agent executes a tool that creates, modifies, or deletes a file inside the working directory, `upper/` remains empty.
+- As soon as the agent edits a project file, that file appears in `upper/` and is detected by `safebox diff`.
+
+### Q4: What is `10.0.2.3`, and does userspace NAT DNS introduce security risks?
+When running with `--allow-net`, Safebox uses `slirp4netns` to provide userspace network address translation.
+- `10.0.2.3` is an internal virtual IP simulated entirely in userspace by `slirp4netns` inside the child network namespace. It acts as a local DNS proxy, intercepting container DNS queries and forwarding them to the host DNS servers outside the sandbox.
+- It introduces zero security risks to the host:
+  - It exists only when `--allow-net` is explicitly requested by the user.
+  - Safebox executes `slirp4netns` with `--disable-host-loopback`, which strictly forbids the sandboxed container from connecting to `127.0.0.1` on the host, protecting local databases and host services.
+
+### Q5: Why is explicit `--allow-path=~/.local/bin` required for user-installed agent binaries?
+Safebox enforces a strict deny-by-default policy on `$HOME` to prevent malicious or compromised tools from reading private SSH keys, cloud credentials, or shell histories.
+- System binaries in `/usr/bin` and `/usr/local/bin` are allowed by default because they contain standard OS utilities.
+- When an agent is installed inside user space (such as `~/.local/bin/agy`, `~/.cargo/bin/...`, or `~/.kilo/bin/kilo`), granting execute access requires the user to explicitly pass `--allow-path=~/.local/bin`.
+- This ensures the developer always maintains conscious control over host path permissions without implicit auto-grants polluting the security boundary.

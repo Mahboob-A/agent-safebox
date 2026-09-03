@@ -40,7 +40,7 @@ func ApplyLandlock(allowPathsRO []string, allowPathsRW []string, allowFilesRW []
 		return fmt.Errorf("safebox: cannot resolve working directory: %w", err)
 	}
 
-	defaultRODirs := []string{"/usr", "/usr/local", "/lib", "/lib64", "/etc/ld.so.conf.d"}
+	defaultRODirs := []string{"/usr", "/usr/local", "/lib", "/lib64", "/etc/ld.so.conf.d", "/etc/ssl", "/etc/pki"}
 	allRODirs := append(defaultRODirs, allowPathsRO...)
 	roDirs := filterExisting(allRODirs)
 
@@ -122,7 +122,7 @@ func ProbeLandlock(allowPathsRO, allowPathsRW, allowFilesRW []string) (ProbeRepo
 		return ProbeReport{}, fmt.Errorf("safebox: cannot resolve working directory: %w", err)
 	}
 
-	defaultRODirs := []string{"/usr", "/usr/local", "/lib", "/lib64", "/etc/ld.so.conf.d"}
+	defaultRODirs := []string{"/usr", "/usr/local", "/lib", "/lib64", "/etc/ld.so.conf.d", "/etc/ssl", "/etc/pki"}
 	allRODirs := append(defaultRODirs, allowPathsRO...)
 	roDirs := filterExisting(allRODirs)
 

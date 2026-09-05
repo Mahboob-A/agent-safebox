@@ -23,7 +23,7 @@ func TestRunVersion(t *testing.T) {
 		t.Errorf("expected exit code 0, got %d", code)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "safebox v0.5.0") {
-		t.Errorf("expected output to contain 'safebox v0.5.0', got: %s", out)
+	if !strings.Contains(out, "safebox "+Version) {
+		t.Errorf("expected output to contain 'safebox %s', got: %s", Version, out)
 	}
 }

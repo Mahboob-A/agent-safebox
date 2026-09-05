@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/Go-1.24+-00ADD8.svg" alt="Go">
   <img src="https://img.shields.io/badge/Bash-5.0+-121011.svg" alt="Bash">
   <img src="https://img.shields.io/badge/Platform-Linux-FCC624.svg" alt="Linux">
-  <img src="https://img.shields.io/badge/Release-v0.5.1-2B4A3A.svg" alt="Release">
+  <img src="https://img.shields.io/badge/Release-v0.5.2-2B4A3A.svg" alt="Release">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
 </p>
 

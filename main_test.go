@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"safebox/internal/cli"
 )
 
 var testBinaryPath string
@@ -675,8 +677,9 @@ func TestCLIVersion(t *testing.T) {
 		if err != nil {
 			t.Fatalf("safebox %s failed: %v, output: %s", flag, err, string(out))
 		}
-		if !strings.Contains(string(out), "safebox v0.5.0") {
-			t.Errorf("safebox %s expected 'safebox v0.5.0', got: %s", flag, string(out))
+		expected := "safebox " + cli.Version
+		if !strings.Contains(string(out), expected) {
+			t.Errorf("safebox %s expected '%s', got: %s", flag, expected, string(out))
 		}
 	}
 }

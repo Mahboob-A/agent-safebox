@@ -9,7 +9,7 @@ import (
 
 // Version metadata set at compile time or defaults to current release.
 var (
-	Version   = "v0.5.0"
+	Version   = "v0.5.2"
 	GitCommit = ""
 	BuildDate = ""
 )

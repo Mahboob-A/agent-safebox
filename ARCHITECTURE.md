@@ -120,15 +120,15 @@ The `safebox` codebase is structured into eight modular Go packages with strict 
 
 | Package | Directory | Core Architectural Responsibility |
 | :--- | :--- | :--- |
-| `main` | `agent-safebox/` | CLI bootstrap, argument validation, and routing to dispatch. |
-| `internal/cli` | `agent-safebox/internal/cli/` | Subcommand handlers (`run`, `child`, `diff`, `apply`, `revert`, `probe`, `profile`), argument parser, and user hints. |
-| `internal/isolation` | `agent-safebox/internal/isolation/` | Kernel namespace creation, Landlock LSM rule compilation, OverlayFS mounting, and PID 1 init supervisor shim. |
-| `internal/netpolicy` | `agent-safebox/internal/netpolicy/` | Userspace NAT orchestration (`pasta`, `slirp4netns`, pure-Go TAP), DNS pinning, and network namespace readiness synchronization. |
-| `internal/persistentstate` | `agent-safebox/internal/persistentstate/` | Per-tool state directory preparation under `$XDG_STATE_HOME`, strict `0700` permission enforcement, and in-namespace bind mounting. |
-| `internal/profiles` | `agent-safebox/internal/profiles/` | Declarative agent profile schemas, 16 embedded TOML configurations, custom user profile loader, and hand-rolled TOML parser. |
-| `internal/revert` | `agent-safebox/internal/revert/` | Session lifecycle management, active PID lockfile coordination, diff generation, atomic staging commit, and whiteout cleanup. |
-| `internal/trace` | `agent-safebox/internal/trace/` | Nanosecond-accurate execution step timing and formatted `stderr` badges (`[safebox]`, `[safebox:child]`). |
-| `internal/ui` | `agent-safebox/internal/ui/` | Lipgloss terminal formatting, status badges, and color tokens. |
+| `main` | `safebox/` | CLI bootstrap, argument validation, and routing to dispatch. |
+| `internal/cli` | `safebox/internal/cli/` | Subcommand handlers (`run`, `child`, `diff`, `apply`, `revert`, `probe`, `profile`), argument parser, and user hints. |
+| `internal/isolation` | `safebox/internal/isolation/` | Kernel namespace creation, Landlock LSM rule compilation, OverlayFS mounting, and PID 1 init supervisor shim. |
+| `internal/netpolicy` | `safebox/internal/netpolicy/` | Userspace NAT orchestration (`pasta`, `slirp4netns`, pure-Go TAP), DNS pinning, and network namespace readiness synchronization. |
+| `internal/persistentstate` | `safebox/internal/persistentstate/` | Per-tool state directory preparation under `$XDG_STATE_HOME`, strict `0700` permission enforcement, and in-namespace bind mounting. |
+| `internal/profiles` | `safebox/internal/profiles/` | Declarative agent profile schemas, 16 embedded TOML configurations, custom user profile loader, and hand-rolled TOML parser. |
+| `internal/revert` | `safebox/internal/revert/` | Session lifecycle management, active PID lockfile coordination, diff generation, atomic staging commit, and whiteout cleanup. |
+| `internal/trace` | `safebox/internal/trace/` | Nanosecond-accurate execution step timing and formatted `stderr` badges (`[safebox]`, `[safebox:child]`). |
+| `internal/ui` | `safebox/internal/ui/` | Lipgloss terminal formatting, status badges, and color tokens. |
 
 ---
 
@@ -256,7 +256,7 @@ Inside the child process, before any agent code executes:
 1. **Userspace NAT & Egress**: The parent attaches `slirp4netns` to the child network namespace with `-c` and `--disable-host-loopback`. Inside the child, `applyEgressConfig` bind-mounts a synthetic `/etc/resolv.conf` (pointing to virtual DNS proxy `10.0.2.3`) and `/etc/hosts`.
 2. **Fresh Procfs Mount**: `isolation.MountProc()` mounts a fresh `procfs` over `/proc`. This ensures `/proc/self` maps accurately to container PID 1 rather than host PID 1 (`systemd`), preventing crashes in runtimes (such as Bun, WebKit, and Node) that assert on `/proc/self` state.
 3. **OverlayFS Mount**: Safebox mounts `overlay` over `merged/` combining:
-   - Lower layer: Assume host working directory `/root/demo-project/` (or the repository workspace at `/workspace/agent-safebox/` when developing on Safebox itself) (read-only).
+   - Lower layer: Assume host working directory `/root/demo-project/` (or the repository workspace at `/workspace/safebox/` when developing on Safebox itself) (read-only).
    - Upper layer: `/tmp/safebox/sessions/sess-demo-12345/upper` (read-write).
    - Work layer: `/tmp/safebox/sessions/sess-demo-12345/work`.
 4. **Working Directory Shift**: The child changes directory (`os.Chdir`) into `merged/`.

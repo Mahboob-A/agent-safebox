@@ -4,9 +4,9 @@ set -euo pipefail
 # Safebox Official Linux Installer
 # Usage: curl -fsSL https://safebox.mahboob.engineer/install.sh | bash
 # Pinning: curl -fsSL https://safebox.mahboob.engineer/install.sh | SAFEBOX_VERSION=v0.5.0 bash
-# Fallback: curl -fsSL https://raw.githubusercontent.com/Mahboob-A/agent-safebox/main/install.sh | bash
+# Fallback: curl -fsSL https://raw.githubusercontent.com/Mahboob-A/safebox/main/install.sh | bash
 
-REPO="Mahboob-A/agent-safebox"
+REPO="Mahboob-A/safebox"
 
 # 1. Operating System Validation (Safebox is Linux-only)
 OS="$(uname -s)"

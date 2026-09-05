@@ -70,8 +70,8 @@ On permission denial:
   Read the hint, copy-paste the flag into your command, retry.
 
 Documentation:
-  Command Reference:   https://github.com/Mahboob-A/agent-safebox/blob/main/COMMANDS.md
-  System Architecture: https://github.com/Mahboob-A/agent-safebox/blob/main/ARCHITECTURE.md`
+  Command Reference:   https://github.com/Mahboob-A/safebox/blob/main/COMMANDS.md
+  System Architecture: https://github.com/Mahboob-A/safebox/blob/main/ARCHITECTURE.md`
 
 // PrintUsage writes the usage guide to os.Stderr.
 func PrintUsage() {

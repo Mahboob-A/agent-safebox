@@ -70,9 +70,9 @@ safebox run --probe --allow-net --allow-path=/root/.local/bin -- agy
 ```text
   -> using profile: agy
 LANDLOCK PROBE REPORT:
-  Working Dir: /root/go-safebox/workspace/agent-safebox
+  Working Dir: /root/go-safebox/workspace/safebox
   Effective RW Paths:
-    - /root/go-safebox/workspace/agent-safebox
+    - /root/go-safebox/workspace/safebox
     - /root/.gemini
   Effective RO Paths:
     - /usr

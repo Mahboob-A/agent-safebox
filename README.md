@@ -56,7 +56,7 @@ curl -fsSL https://safebox.mahboob.engineer/install.sh | SAFEBOX_VERSION=v0.5.0 
 
 **Fallback (direct GitHub Raw):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Mahboob-A/agent-safebox/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Mahboob-A/safebox/main/install.sh | bash
 ```
 
 > [!NOTE]
@@ -67,8 +67,8 @@ curl -fsSL https://raw.githubusercontent.com/Mahboob-A/agent-safebox/main/instal
 
 Alternatively, compile directly from source (requires Go 1.24+):
 ```bash
-git clone https://github.com/Mahboob-A/agent-safebox.git
-cd agent-safebox
+git clone https://github.com/Mahboob-A/safebox.git
+cd safebox
 go build -o /usr/local/bin/safebox .
 ```
 

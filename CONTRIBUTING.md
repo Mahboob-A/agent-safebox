@@ -14,20 +14,20 @@ If you are an AI coding assistant working on Safebox, read and follow this secti
 
 ## 1. Workspace Layout & Non-Git Rule
 
-Safebox is developed within a multi-root workspace. The core Go codebase lives in `agent-safebox/` (the Git repository), while all agent-facing notes, specifications, and scratch files live in `project-knowledge/` (a separate, non-git directory):
+Safebox is developed within a multi-root workspace. The core Go codebase lives in `safebox/` (the Git repository), while all agent-facing notes, specifications, and scratch files live in `project-knowledge/` (a separate, non-git directory):
 
 ```
 workspace/
-├── agent-safebox.code-workspace
-├── agent-safebox/              (the core git repository: Go code & tests)
+├── safebox.code-workspace
+├── safebox/                    (the core git repository: Go code & tests)
 └── project-knowledge/           (NON-GIT directory for AI agent artifacts)
     └── AGENTS.md               (auto-progressive agent rules & index)
 ```
 
 ### Critical Workspace Invariants:
-1. **`project-knowledge/` is Non-Git by Default**: Never track `project-knowledge/` inside the `agent-safebox/` git repository. All AI session scratch pads, prompt notes, and progress logs must stay inside `project-knowledge/` and must never pollute `agent-safebox/`.
-2. **Git Commands Run Strictly in `agent-safebox/`**: Always execute git commands (`status`, `diff`, `commit`, `branch`, `push`) from within `/root/go-safebox/workspace/agent-safebox` (or the equivalent `agent-safebox/` root).
-3. **No AI Documentation in Core**: Never commit raw conversational logs, agent prompt histories, or verbose AI scratch notes to `agent-safebox/`.
+1. **`project-knowledge/` is Non-Git by Default**: Never track `project-knowledge/` inside the `safebox/` git repository. All AI session scratch pads, prompt notes, and progress logs must stay inside `project-knowledge/` and must never pollute `safebox/`.
+2. **Git Commands Run Strictly in `safebox/`**: Always execute git commands (`status`, `diff`, `commit`, `branch`, `push`) from within `/root/go-safebox/workspace/safebox` (or the equivalent `safebox/` root).
+3. **No AI Documentation in Core**: Never commit raw conversational logs, agent prompt histories, or verbose AI scratch notes to `safebox/`.
 
 ---
 
@@ -57,7 +57,7 @@ Below is the complete, authoritative specification to be placed in `../project-k
 
 ## 0. Workspace & Git Boundaries
 
-1. **agent-safebox/** is the git repository. All code, unit tests, and integration scripts live here. Every git command runs inside `agent-safebox/`.
+1. **safebox/** is the git repository. All code, unit tests, and integration scripts live here. Every git command runs inside `safebox/`.
 2. **project-knowledge/** is non-git tracked by default. All agent notes, task tracking, and specifications live here.
 3. Git branch discipline: Always develop on a feature or fix branch (e.g. `feat/...`). Never commit directly to `main`.
 
@@ -101,8 +101,8 @@ If you are a human open-source developer contributing to Safebox, welcome! We ad
 
 ### Cloning and Building
 ```bash
-git clone https://github.com/Mahboob-A/agent-safebox.git
-cd agent-safebox
+git clone https://github.com/Mahboob-A/safebox.git
+cd safebox
 go build -o safebox .
 ./safebox help
 ```
@@ -157,6 +157,6 @@ When submitting a PR, provide a complete, detailed description:
 
 ## 5. Core Repository Hygiene
 
-The core `agent-safebox` repository is reserved strictly for Go source code, tests, and human-crafted documentation.
+The core `safebox` repository is reserved strictly for Go source code, tests, and human-crafted documentation.
 - If you use AI coding assistants in your workflow, keep all agent notes, progress journals, and conversation logs in a separate directory outside the repository.
 - Do not commit AI prompt logs, scratch files, or conversational transcripts to `safebox`.
